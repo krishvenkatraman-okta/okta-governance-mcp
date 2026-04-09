@@ -1,0 +1,43 @@
+{
+  "name": "okta-governance-mcp",
+  "version": "1.0.0",
+  "description": "MCP server for Okta Governance with MAS/MRS separation",
+  "main": "dist/index.js",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "dev:mas": "NODE_ENV=development SERVER_MODE=mas tsx watch src/index.ts",
+    "dev:mrs": "NODE_ENV=development SERVER_MODE=mrs tsx watch src/index.ts",
+    "start:mas": "NODE_ENV=production SERVER_MODE=mas node dist/index.js",
+    "start:mrs": "NODE_ENV=production SERVER_MODE=mrs node dist/index.js",
+    "clean": "rm -rf dist",
+    "parse-postman": "tsx scripts/parse-postman.ts",
+    "generate-keypair": "tsx scripts/generate-keypair.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "okta",
+    "governance",
+    "mcp",
+    "identity",
+    "authorization"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.2",
+    "jwks-rsa": "^3.1.0",
+    "node-fetch": "^3.3.2",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/jsonwebtoken": "^9.0.7",
+    "@types/node": "^22.10.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  }
+}
