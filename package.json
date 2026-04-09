@@ -13,6 +13,8 @@
     "clean": "rm -rf dist",
     "parse-postman": "tsx scripts/parse-postman.ts",
     "generate-keypair": "tsx scripts/generate-keypair.ts",
+    "validate-tools": "tsx scripts/validate-tool-requirements.ts",
+    "show-examples": "tsx scripts/show-tool-examples.ts",
     "typecheck": "tsc --noEmit"
   },
   "keywords": [

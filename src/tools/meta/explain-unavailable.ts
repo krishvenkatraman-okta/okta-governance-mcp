@@ -58,8 +58,26 @@ export const explainUnavailableTool: ToolDefinition = {
       (cap) => !context.capabilities.includes(cap)
     );
 
-    let explanation = `The tool '${toolName}' is not available to you because:\n\n`;
+    const missingRoles = requirement.requiredRoles
+      ? requirement.requiredRoles.filter((role) => {
+          switch (role) {
+            case 'SUPER_ADMIN':
+              return !context.roles.superAdmin;
+            case 'APP_ADMIN':
+              return !context.roles.appAdmin;
+            case 'GROUP_ADMIN':
+              return !context.roles.groupAdmin;
+            default:
+              return true;
+          }
+        })
+      : [];
 
+    let explanation = `The tool '${toolName}' is not available to you.\n\n`;
+
+    explanation += `**Tool Description:**\n${requirement.description}\n\n`;
+
+    // Explain missing capabilities
     if (missingCapabilities.length > 0) {
       explanation += `**Missing Capabilities:**\n`;
       for (const cap of missingCapabilities) {
@@ -68,6 +86,17 @@ export const explainUnavailableTool: ToolDefinition = {
       explanation += `\n`;
     }
 
+    // Explain missing roles
+    if (missingRoles.length > 0) {
+      explanation += `**Required Roles (you need at least one):**\n`;
+      for (const role of requirement.requiredRoles || []) {
+        const hasRole = !missingRoles.includes(role);
+        explanation += `${hasRole ? '✓' : '✗'} ${role}\n`;
+      }
+      explanation += `\n`;
+    }
+
+    // Explain required scopes
     if (requirement.requiredScopes.length > 0) {
       explanation += `**Required OAuth Scopes:**\n`;
       for (const scope of requirement.requiredScopes) {
@@ -76,20 +105,60 @@ export const explainUnavailableTool: ToolDefinition = {
       explanation += `\n`;
     }
 
-    if (requirement.targetConstraints.length > 0 && requirement.targetConstraints[0] !== 'no_constraint') {
-      explanation += `**Target Constraints:**\n`;
-      for (const constraint of requirement.targetConstraints) {
-        explanation += `- ${constraint}\n`;
+    // Explain target constraints
+    if (requirement.requiresTargetResource) {
+      explanation += `**Target Resource Required:**\n`;
+      explanation += `This tool requires you to have ownership of specific resources.\n`;
+
+      if (requirement.targetConstraints.includes('must_be_owned_app')) {
+        const hasApps = context.targets.apps.length > 0;
+        explanation += `${hasApps ? '✓' : '✗'} Owned Applications: ${
+          hasApps ? context.targets.apps.length : 'None'
+        }\n`;
+      }
+
+      if (requirement.targetConstraints.includes('must_be_owned_group')) {
+        const hasGroups = context.targets.groups.length > 0;
+        explanation += `${hasGroups ? '✓' : '✗'} Owned Groups: ${
+          hasGroups ? context.targets.groups.length : 'None'
+        }\n`;
       }
       explanation += `\n`;
     }
 
+    // Explain conditional scopes if present
+    if (requirement.conditionalScopes && requirement.conditionalScopes.length > 0) {
+      explanation += `**Conditional Requirements:**\n`;
+      for (const conditional of requirement.conditionalScopes) {
+        explanation += `${conditional.condition}:\n`;
+        for (const scope of conditional.scopes) {
+          explanation += `  - ${scope}\n`;
+        }
+      }
+      explanation += `\n`;
+    }
+
+    // Provide actionable guidance
     explanation += `**What you need:**\n`;
 
     if (context.roles.regularUser && !context.roles.appAdmin && !context.roles.groupAdmin) {
-      explanation += `You need to be assigned an admin role (such as App Admin or Super Admin) to access this tool.\n`;
-    } else if (context.roles.appAdmin || context.roles.groupAdmin) {
-      explanation += `You may need additional role assignments or resource targets (apps/groups) to access this tool.\n`;
+      explanation += `You need to be assigned an admin role. Contact your Okta administrator to request:\n`;
+      explanation += `- App Admin role (with specific app targets)\n`;
+      explanation += `- Or Super Admin role for full access\n`;
+    } else if (context.roles.appAdmin && context.targets.apps.length === 0) {
+      explanation += `You have the App Admin role but no app targets assigned.\n`;
+      explanation += `Contact your Okta administrator to assign specific apps to your admin role.\n`;
+    } else if (context.roles.groupAdmin && context.targets.groups.length === 0) {
+      explanation += `You have the Group Admin role but no group targets assigned.\n`;
+      explanation += `Contact your Okta administrator to assign specific groups to your admin role.\n`;
+    } else {
+      explanation += `You may need additional permissions or role assignments.\n`;
+      explanation += `Contact your Okta administrator for assistance.\n`;
+    }
+
+    // Add notes if available
+    if (requirement.notes) {
+      explanation += `\n**Additional Notes:**\n${requirement.notes}\n`;
     }
 
     return createTextResponse(explanation);

@@ -226,17 +226,42 @@ export interface EndpointSearchFilters {
 }
 
 /**
+ * Conditional scope requirement
+ */
+export interface ConditionalScope {
+  condition: string; // Human-readable condition
+  scopes: string[];
+  description?: string;
+}
+
+/**
  * Tool requirement definition
  */
 export interface ToolRequirement {
-  tool: string;
+  // Identity
+  toolName: string;
   description: string;
-  requiredScopes: string[];
-  optionalScopes?: string[];
+
+  // Endpoint mapping
+  mappedEndpoints: string[]; // Endpoint IDs or names
+  endpointCategories: string[]; // Categories this tool operates on
+
+  // OAuth scopes
+  requiredScopes: string[]; // Always required
+  conditionalScopes?: ConditionalScope[]; // Context-dependent
+
+  // Authorization
   requiredCapabilities: Capability[];
+  requiredRoles?: string[]; // Okta role types
   targetConstraints: TargetConstraint[];
-  endpointFamilies: string[];
-  documentation?: string;
+
+  // Documentation
+  documentationRefs?: string[];
+  notes?: string;
+
+  // Metadata
+  isMetadataTool?: boolean; // True for read-only meta tools
+  requiresTargetResource?: boolean; // True if needs specific app/group
 }
 
 /**
@@ -244,6 +269,27 @@ export interface ToolRequirement {
  */
 export interface ToolRequirementsRegistry {
   requirements: Record<string, ToolRequirement>;
+}
+
+/**
+ * Validation result for tool requirements
+ */
+export interface ToolRequirementValidation {
+  valid: boolean;
+  errors: string[];
+  warnings: string[];
+  toolName: string;
+}
+
+/**
+ * Registry validation summary
+ */
+export interface RegistryValidationSummary {
+  totalTools: number;
+  validTools: number;
+  invalidTools: number;
+  errors: Array<{ toolName: string; errors: string[] }>;
+  warnings: Array<{ toolName: string; warnings: string[] }>;
 }
 
 /**
@@ -255,4 +301,15 @@ export interface OperationRequirement {
   method: string;
   requiredScopes: string[];
   description?: string;
+}
+
+/**
+ * Missing requirements detail
+ */
+export interface MissingRequirements {
+  scopes: string[];
+  capabilities: Capability[];
+  roles: string[];
+  targetConstraints: string[];
+  reason: string;
 }
