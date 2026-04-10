@@ -40,11 +40,9 @@ RUN mkdir -p keys
 # Environment variables will be provided at runtime
 ENV NODE_ENV=production
 
-# Expose ports for MAS and MRS
-EXPOSE 3000 3001
+# Expose port for HTTP server (Render will set PORT via environment)
+EXPOSE 3002
 
-# Default to MRS mode (override with docker run -e SERVER_MODE=mas)
-ENV SERVER_MODE=mrs
-
-# Start the server
-CMD ["node", "dist/index.js"]
+# Start the HTTP server (for cloud hosting)
+# For stdio mode, override CMD with: node dist/index.js
+CMD ["node", "dist/mrs-http.js"]

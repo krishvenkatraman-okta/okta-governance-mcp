@@ -10,6 +10,8 @@
     "dev:mrs": "NODE_ENV=development SERVER_MODE=mrs tsx watch src/index.ts",
     "start:mas": "NODE_ENV=production SERVER_MODE=mas node dist/index.js",
     "start:mrs": "NODE_ENV=production SERVER_MODE=mrs node dist/index.js",
+    "start:mrs-http": "NODE_ENV=production node dist/mrs-http.js",
+    "start": "npm run start:mrs-http",
     "clean": "rm -rf dist",
     "parse-postman": "tsx scripts/parse-postman.ts",
     "generate-keypair": "tsx scripts/generate-keypair.ts",
