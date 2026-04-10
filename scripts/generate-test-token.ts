@@ -50,12 +50,11 @@ function generateTestToken(options: TokenOptions): string {
     );
   }
 
-  const privateKey = fs.readFileSync(privateKeyPath, 'utf8');
-
   // Build token claims
   const now = Math.floor(Date.now() / 1000);
   const claims = {
     // Standard JWT claims
+    jti: `test-${Date.now()}-${Math.random().toString(36).substring(7)}`,
     iss: process.env.MCP_TOKEN_ISSUER || 'mcp://okta-governance-mas',
     aud: process.env.MCP_TOKEN_AUDIENCE || 'mcp://okta-governance-mrs',
     sub,
@@ -75,8 +74,8 @@ function generateTestToken(options: TokenOptions): string {
   console.log('\n📝 Generating MCP test token...\n');
   console.log('Token claims:', JSON.stringify(claims, null, 2));
 
-  // Sign token
-  const token = signJwt(claims, privateKey, {
+  // Sign token (signJwt reads the file itself)
+  const token = signJwt(claims, privateKeyPath, {
     algorithm: 'RS256',
   });
 

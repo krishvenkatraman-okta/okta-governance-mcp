@@ -85,17 +85,55 @@ function mapRolesToCapabilities(
 }
 
 /**
+ * Check if a capability satisfies a requirement
+ *
+ * Logic:
+ * - Exact match: capability === required (e.g., 'campaigns.manage.owned' === 'campaigns.manage.owned')
+ * - Elevated match: capability with '.all' satisfies requirement with '.owned'
+ *   (e.g., 'campaigns.manage.all' satisfies 'campaigns.manage.owned')
+ *
+ * This allows SUPER_ADMIN and ORG_ADMIN users (who have .all capabilities)
+ * to access tools that require .owned capabilities.
+ *
+ * @param capability - The capability the user has
+ * @param required - The capability required by the tool
+ * @returns true if the capability satisfies the requirement
+ */
+function capabilitySatisfiesRequirement(capability: Capability, required: Capability): boolean {
+  // Exact match
+  if (capability === required) {
+    return true;
+  }
+
+  // Check if .all capability satisfies .owned requirement
+  // Example: 'campaigns.manage.all' satisfies 'campaigns.manage.owned'
+  if (required.endsWith('.owned')) {
+    const baseCapability = required.slice(0, -6); // Remove '.owned'
+    const allCapability = `${baseCapability}.all` as Capability;
+    if (capability === allCapability) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
  * Check if user has a specific capability
+ *
+ * Recognizes that .all capabilities satisfy .owned requirements.
  */
 function hasCapability(capabilities: Capability[], required: Capability): boolean {
-  return capabilities.includes(required);
+  return capabilities.some((cap) => capabilitySatisfiesRequirement(cap, required));
 }
 
 /**
  * Check if user has any of the required capabilities
+ *
+ * Recognizes that .all capabilities satisfy .owned requirements.
  */
 function hasAnyCapability(capabilities: Capability[], required: Capability[]): boolean {
-  return required.some((cap) => capabilities.includes(cap));
+  return required.some((req) => hasCapability(capabilities, req));
 }
 
 /**
