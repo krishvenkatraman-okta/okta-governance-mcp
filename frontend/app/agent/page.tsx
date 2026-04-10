@@ -48,13 +48,31 @@ export default function AgentPage() {
   }, []);
 
   const checkTokenState = async () => {
-    // TODO: Implement token state check API endpoint
-    // For now, placeholder that shows not authenticated
-    setTokenState({
-      hasIdToken: false,
-      hasIdJag: false,
-      hasMcpAccessToken: false,
-    });
+    try {
+      const response = await fetch('/api/auth/session');
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch session status');
+      }
+
+      const data = await response.json();
+
+      setTokenState({
+        hasIdToken: data.hasIdToken,
+        hasIdJag: data.hasIdJag,
+        hasMcpAccessToken: data.hasMcpAccessToken,
+        userId: data.userId,
+        userEmail: data.userEmail,
+      });
+    } catch (err) {
+      console.error('Failed to check token state:', err);
+      // Set to unauthenticated state on error
+      setTokenState({
+        hasIdToken: false,
+        hasIdJag: false,
+        hasMcpAccessToken: false,
+      });
+    }
   };
 
   const handleLogin = () => {

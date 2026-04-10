@@ -3,6 +3,12 @@
  *
  * Branded header for the Okta AI Governance Console
  * Features animated logo and gradient background
+ *
+ * IMPORTANT: Logo File Requirement
+ * The Okta logo must be placed at: frontend/public/okta-logo.png
+ * - Format: PNG with transparency (recommended)
+ * - Dimensions: Square aspect ratio (e.g., 512x512px)
+ * - The logo is displayed at 64x64px with slow rotation animation
  */
 
 'use client';

@@ -22,11 +22,11 @@ export async function GET() {
     // Check if agent is configured
     const { agent, orgAuthServer } = config.okta;
 
-    if (!agent.clientId || !agent.keyId) {
+    if (!agent.principalId || !agent.keyId) {
       return NextResponse.json(
         {
           error: 'Agent not configured',
-          message: 'Agent client ID and key ID must be set in environment',
+          message: 'Agent principal ID and key ID must be set in environment',
         },
         { status: 500 }
       );
@@ -68,7 +68,7 @@ export async function GET() {
         errors: validation.errors,
       },
       config: {
-        agentClientId: agent.clientId,
+        agentPrincipalId: agent.principalId,
         agentKeyId: agent.keyId,
         audience: audience,
         privateKeySource: agent.privateKeyJwk ? 'JWK string' : 'PEM file',
