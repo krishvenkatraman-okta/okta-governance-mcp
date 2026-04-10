@@ -210,6 +210,94 @@ Step 3: Access Token Exchange (/api/token/access-token)
 
 ---
 
+## Client Assertion (private_key_jwt)
+
+The ID-JAG exchange uses **client assertion** for authenticating the AI agent client with Okta, eliminating the need for a client secret.
+
+### What is a Client Assertion?
+
+A client assertion is a signed JWT that proves the client's identity. Instead of sending a shared secret, the client signs a JWT with its private key, and Okta verifies it with the corresponding public key.
+
+### Why No Client Secret?
+
+**Traditional confidential clients:**
+- Use `client_id` + `client_secret`
+- Secret must be stored securely
+- Risk of secret exposure
+
+**Client assertion (private_key_jwt):**
+- Uses `client_id` + signed JWT
+- Only private key needs protection
+- No shared secret to expose
+- More secure for service-to-service authentication
+
+### JWT Claims
+
+The client assertion JWT contains:
+
+```json
+{
+  "iss": "{agent_client_id}",
+  "sub": "{agent_client_id}",
+  "aud": "https://{domain}/oauth2/v1/token",
+  "iat": 1234567890,
+  "exp": 1234568190,
+  "jti": "unique-token-id"
+}
+```
+
+**Header:**
+```json
+{
+  "alg": "RS256",
+  "kid": "{agent_key_id}"
+}
+```
+
+### Implementation
+
+**Utility:** `lib/agent-client-assertion.ts`
+
+**Key function:**
+```typescript
+import { buildAgentClientAssertion } from '@/lib/agent-client-assertion';
+
+const jwt = await buildAgentClientAssertion({
+  audience: config.okta.orgAuthServer.tokenEndpoint
+});
+```
+
+**Demo endpoint:** `GET /api/demo/client-assertion`
+- Shows JWT metadata without exposing secrets
+- Use for testing assertion generation
+
+### Security
+
+- Private key stored server-side only (never exposed to browser)
+- Short-lived tokens (5 minutes max)
+- Each token has unique `jti` (prevents replay)
+- Clock skew protection (60 seconds)
+
+### OAuth Token Exchange Request
+
+```http
+POST https://{domain}/oauth2/v1/token
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=urn:ietf:params:oauth:grant-type:token-exchange
+&subject_token={id_token}
+&subject_token_type=urn:ietf:params:oauth:token-type:id_token
+&requested_token_type=urn:okta:oauth:token-type:id_jag
+&audience=api://mcp-governance
+&scope=governance:mcp
+&client_assertion_type=urn:ietf:params:oauth:client-assertion-type:jwt-bearer
+&client_assertion={signed_jwt}
+```
+
+**Note:** No `client_secret` parameter needed.
+
+---
+
 ## Tech Stack
 
 - **Framework:** Next.js 15 (App Router)

@@ -37,9 +37,11 @@
  *
  * Flow (to be implemented):
  * 1. Retrieve ID token from session (issued to USER client, identity only)
- * 2. Build signed client assertion JWT using AGENT private key:
- *    - Header: `{ alg: "RS256", kid: "{agent_key_id}" }`
- *    - Claims: `{ iss: "{agent_client_id}", sub: "{agent_client_id}", aud: "{org_token_endpoint}", iat, exp, jti }`
+ * 2. Build signed client assertion JWT using lib/agent-client-assertion.ts:
+ *    - buildAgentClientAssertion({ audience: orgAuthServer.tokenEndpoint })
+ *    - Returns signed JWT with:
+ *      - Header: { alg: "RS256", kid: "{agent_key_id}" }
+ *      - Claims: { iss, sub, aud, iat, exp, jti }
  * 3. POST to ORG token endpoint: https://{domain}/oauth2/v1/token
  *    - grant_type=urn:ietf:params:oauth:grant-type:token-exchange
  *    - subject_token=<id_token> (identity from USER client)
