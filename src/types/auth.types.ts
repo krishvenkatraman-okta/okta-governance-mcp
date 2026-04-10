@@ -20,6 +20,7 @@ export interface IdJagToken {
 /**
  * MCP Access Token
  * Issued by MAS for use with MRS
+ * NOTE: Deprecated - MRS now uses Okta access tokens
  */
 export interface McpAccessToken {
   iss: string; // Issuer (MAS)
@@ -34,6 +35,26 @@ export interface McpAccessToken {
 }
 
 /**
+ * Okta Access Token
+ * Issued by Okta custom authorization server after ID-JAG exchange
+ * Used by MRS for authentication
+ */
+export interface OktaAccessToken {
+  iss: string; // Issuer (Okta custom authorization server)
+  sub: string; // Subject (user ID)
+  aud: string | string[]; // Audience (api://mcp-governance)
+  exp: number; // Expiration timestamp
+  iat: number; // Issued at timestamp
+  nbf?: number; // Not before timestamp
+  jti?: string; // JWT ID
+  scp?: string | string[]; // Scopes
+  cid?: string; // Client ID
+  uid?: string; // User ID (alternative to sub)
+  // Additional claims from Okta
+  [key: string]: unknown;
+}
+
+/**
  * ID-JAG validation result
  */
 export interface IdJagValidationResult {
@@ -44,10 +65,20 @@ export interface IdJagValidationResult {
 
 /**
  * MCP token validation result
+ * NOTE: Deprecated - MRS now uses Okta access token validation
  */
 export interface McpTokenValidationResult {
   valid: boolean;
   payload?: McpAccessToken;
+  error?: string;
+}
+
+/**
+ * Okta access token validation result
+ */
+export interface AccessTokenValidationResult {
+  valid: boolean;
+  payload?: OktaAccessToken;
   error?: string;
 }
 

@@ -10,7 +10,7 @@ import express from 'express';
 import { config } from '../src/config/index.js';
 import { getAvailableTools } from '../src/mrs/tool-registry.js';
 import { executeTool } from '../src/mrs/tool-executor.js';
-import { validateMcpToken } from '../src/auth/mcp-token-validator.js';
+import { validateAccessToken } from '../src/auth/access-token-validator.js';
 import { resolveAuthorizationContextForSubject } from '../src/policy/authorization-context.js';
 import { getServerMetadataResponse } from '../src/mrs/server-metadata.js';
 import type { AuthorizationContext } from '../src/types/index.js';
@@ -30,7 +30,7 @@ app.use((req, res, next) => {
 });
 
 /**
- * Extract and validate MCP token from Authorization header
+ * Extract and validate Okta access token from Authorization header
  */
 async function authenticateRequest(req: express.Request): Promise<AuthorizationContext | null> {
   const authHeader = req.headers.authorization;
@@ -42,11 +42,11 @@ async function authenticateRequest(req: express.Request): Promise<AuthorizationC
 
   const token = authHeader.substring(7); // Remove "Bearer " prefix
 
-  // Validate token
-  const validation = validateMcpToken(token);
+  // Validate Okta access token
+  const validation = await validateAccessToken(token);
 
   if (!validation.valid) {
-    console.error('[HTTP-Test] Token validation failed:', validation.error);
+    console.error('[HTTP-Test] Okta access token validation failed:', validation.error);
     return null;
   }
 
@@ -57,7 +57,7 @@ async function authenticateRequest(req: express.Request): Promise<AuthorizationC
 
   const { sub: subject } = validation.payload;
 
-  console.log('[HTTP-Test] Token validated for subject:', subject);
+  console.log('[HTTP-Test] Okta access token validated for subject:', subject);
 
   // Resolve authorization context
   try {

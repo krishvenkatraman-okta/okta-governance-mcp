@@ -21,6 +21,7 @@
     "test-server": "tsx scripts/http-test-server.ts",
     "find-user": "tsx scripts/find-user-id.ts",
     "demo-capabilities": "tsx scripts/demo-capability-matching.ts",
+    "demo-access-token": "tsx scripts/demo-access-token-validation.ts",
     "validate-tools": "tsx scripts/validate-tool-requirements.ts",
     "validate-okta-oauth": "tsx scripts/validate-okta-oauth.ts",
     "show-examples": "tsx scripts/show-tool-examples.ts",

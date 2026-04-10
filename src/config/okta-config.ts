@@ -69,11 +69,23 @@ export function oktaConfig() {
     governanceApi: `${orgUrl}/governance/api/v1`,
 
     // ID-JAG validation (for inbound user tokens from MAS)
+    // NOTE: Used by MAS for token exchange, not used by MRS anymore
     idJag: {
       // ID-JAG can use custom authorization server
       issuer: process.env.ID_JAG_ISSUER || `${orgUrl}/oauth2/default`,
       audience: process.env.ID_JAG_AUDIENCE || 'api://mcp-governance',
       jwksUri: process.env.ID_JAG_JWKS_URI || `${orgUrl}/oauth2/default/v1/keys`,
+    },
+
+    // Access Token validation (for MRS authentication)
+    // Access tokens are issued by Okta custom authorization server after ID-JAG exchange
+    accessToken: {
+      // Custom authorization server issuer
+      issuer: process.env.ACCESS_TOKEN_ISSUER || process.env.ID_JAG_ISSUER || `${orgUrl}/oauth2/default`,
+      // Expected audience for MCP access
+      audience: process.env.ACCESS_TOKEN_AUDIENCE || process.env.ID_JAG_AUDIENCE || 'api://mcp-governance',
+      // JWKS URI for custom authorization server
+      jwksUri: process.env.ACCESS_TOKEN_JWKS_URI || process.env.ID_JAG_JWKS_URI || `${orgUrl}/oauth2/default/v1/keys`,
     },
   };
 }

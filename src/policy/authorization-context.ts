@@ -10,7 +10,16 @@
 
 import { rolesClient } from '../okta/roles-client.js';
 import { capabilityMapper } from './capability-mapper.js';
-import type { AuthorizationContext, McpAccessToken } from '../types/index.js';
+import type { AuthorizationContext } from '../types/index.js';
+
+/**
+ * Generic token claims interface
+ * Accepts any JWT token with at least subject claim
+ */
+interface TokenClaims {
+  sub: string;
+  [key: string]: unknown;
+}
 
 /**
  * Minimal context for users with no admin roles
@@ -58,8 +67,8 @@ function createMinimalContext(subject: string): AuthorizationContext {
  * - If target fetch fails → Empty targets array
  * - Logs errors but doesn't fail the request
  *
- * @param subject - Okta user ID (from MCP token sub claim)
- * @param tokenClaims - Optional MCP token claims for additional context
+ * @param subject - Okta user ID (from token sub claim)
+ * @param tokenClaims - Optional token claims for additional context
  * @returns Authorization context with roles, targets, and capabilities
  *
  * @example
@@ -69,11 +78,11 @@ function createMinimalContext(subject: string): AuthorizationContext {
  */
 export async function resolveAuthorizationContextForSubject(
   subject: string,
-  tokenClaims?: McpAccessToken
+  tokenClaims?: TokenClaims
 ): Promise<AuthorizationContext> {
   console.log('[AuthorizationContext] Resolving context for subject:', {
     subject,
-    sessionId: tokenClaims?.sessionId,
+    hasTokenClaims: !!tokenClaims,
   });
 
   try {

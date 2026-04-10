@@ -22,12 +22,12 @@ import { config } from '../config/index.js';
 import { getAvailableTools } from './tool-registry.js';
 import { executeTool } from './tool-executor.js';
 import { loadEndpointRegistry } from '../catalog/endpoint-registry.js';
-import { validateMcpToken } from '../auth/mcp-token-validator.js';
+import { validateAccessToken } from '../auth/access-token-validator.js';
 import { resolveAuthorizationContextForSubject } from '../policy/authorization-context.js';
 import type { AuthorizationContext } from '../types/index.js';
 
 /**
- * Extract MCP access token from request metadata
+ * Extract Okta access token from request metadata
  *
  * The MCP SDK may pass authentication via:
  * - Request metadata (meta.auth or meta.token)
@@ -36,7 +36,7 @@ import type { AuthorizationContext } from '../types/index.js';
  *
  * For now, we support environment variable for testing.
  */
-function extractMcpToken(request: any): string | null {
+function extractAccessToken(request: any): string | null {
   // Try to extract from request metadata
   if (request.meta?.auth?.token) {
     return request.meta.auth.token;
@@ -47,6 +47,7 @@ function extractMcpToken(request: any): string | null {
   }
 
   // Try environment variable (for testing)
+  // Note: This is now an Okta access token, not MCP token
   if (process.env.MCP_ACCESS_TOKEN) {
     return process.env.MCP_ACCESS_TOKEN;
   }
@@ -57,44 +58,44 @@ function extractMcpToken(request: any): string | null {
 /**
  * Authenticate and resolve authorization context
  *
- * Validates the MCP token and resolves the user's authorization context.
+ * Validates the Okta access token and resolves the user's authorization context.
  * Fails closed - returns null if authentication fails.
  *
  * @param request - MCP request object
  * @returns Authorization context or null if auth fails
  */
 async function authenticateRequest(request: any): Promise<AuthorizationContext | null> {
-  // Step 1: Extract MCP token
-  const token = extractMcpToken(request);
+  // Step 1: Extract Okta access token
+  const token = extractAccessToken(request);
 
   if (!token) {
-    console.warn('[MRS] No MCP access token provided in request');
+    console.warn('[MRS] No Okta access token provided in request');
     return null;
   }
 
-  // Step 2: Validate token
-  const validation = validateMcpToken(token);
+  // Step 2: Validate Okta access token
+  const validation = await validateAccessToken(token);
 
   if (!validation.valid) {
-    console.error('[MRS] MCP token validation failed:', {
+    console.error('[MRS] Okta access token validation failed:', {
       error: validation.error,
-      validationErrors: validation.validationErrors,
+      errors: validation.errors,
     });
     return null;
   }
 
   if (!validation.payload) {
-    console.error('[MRS] MCP token validation succeeded but no payload');
+    console.error('[MRS] Okta access token validation succeeded but no payload');
     return null;
   }
 
   const { sub: subject } = validation.payload;
 
-  console.log('[MRS] MCP token validated:', {
+  console.log('[MRS] Okta access token validated:', {
     subject,
     issuer: validation.claims?.issuer,
     expiresAt: validation.claims?.expiresAt,
-    sessionId: validation.claims?.sessionId,
+    scope: validation.claims?.scope,
   });
 
   // Step 3: Resolve authorization context

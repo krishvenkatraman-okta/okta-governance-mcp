@@ -15,7 +15,7 @@ import express from 'express';
 import { config } from '../config/index.js';
 import { getAvailableTools } from './tool-registry.js';
 import { executeTool } from './tool-executor.js';
-import { validateMcpToken } from '../auth/mcp-token-validator.js';
+import { validateAccessToken } from '../auth/access-token-validator.js';
 import { resolveAuthorizationContextForSubject } from '../policy/authorization-context.js';
 import { getServerMetadataResponse } from './server-metadata.js';
 import type { AuthorizationContext } from '../types/index.js';
@@ -36,7 +36,7 @@ app.use((req, res, next) => {
 });
 
 /**
- * Extract and validate MCP token from Authorization header
+ * Extract and validate Okta access token from Authorization header
  */
 async function authenticateRequest(req: express.Request): Promise<AuthorizationContext | null> {
   const authHeader = req.headers.authorization;
@@ -48,11 +48,11 @@ async function authenticateRequest(req: express.Request): Promise<AuthorizationC
 
   const token = authHeader.substring(7); // Remove "Bearer " prefix
 
-  // Validate token
-  const validation = validateMcpToken(token);
+  // Validate Okta access token
+  const validation = await validateAccessToken(token);
 
   if (!validation.valid) {
-    console.error('[MRS-HTTP] Token validation failed:', validation.error);
+    console.error('[MRS-HTTP] Okta access token validation failed:', validation.error);
     return null;
   }
 
@@ -63,7 +63,7 @@ async function authenticateRequest(req: express.Request): Promise<AuthorizationC
 
   const { sub: subject } = validation.payload;
 
-  console.log('[MRS-HTTP] Token validated for subject:', subject);
+  console.log('[MRS-HTTP] Okta access token validated for subject:', subject);
 
   // Resolve authorization context
   try {
