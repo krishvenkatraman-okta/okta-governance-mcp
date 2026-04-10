@@ -65,13 +65,12 @@ export interface FrontendConfig {
       jwksUri: string;
     };
 
-    // AGENT OAuth Client
-    // Used ONLY for: ID-JAG exchange (step 2)
-    // This is a separate OAuth client registered for the AI agent
+    // AGENT Principal (for token exchange only, NOT login)
+    // Used ONLY for: Token exchange (ID-JAG exchange, MCP access token exchange)
     // Uses private_key_jwt authentication (signed client assertion)
+    // NOTE: This is the AGENT PRINCIPAL ID, not a user OAuth client
     agent: {
-      clientId: string;           // AI agent OAuth client ID (different from user client)
-      agentId: string;            // Agent identifier
+      principalId: string;        // Agent principal ID (iss/sub in client assertion)
       keyId: string;              // Key ID (kid) for signing client assertions
       privateKeyJwk?: string;     // Agent private key as JWK (JSON string, server-side only)
       privateKeyPath?: string;    // Alternative: path to private key file (server-side only)
@@ -109,9 +108,9 @@ export function loadConfig(): FrontendConfig {
   // Custom authorization server ID
   const customAuthServerId = process.env.NEXT_PUBLIC_OKTA_CUSTOM_AUTH_SERVER_ID || 'default';
 
-  // AGENT OAuth Client (for ID-JAG exchange with signed client assertion)
-  const agentClientId = process.env.NEXT_PUBLIC_OKTA_AGENT_CLIENT_ID || '';
-  const agentId = process.env.NEXT_PUBLIC_OKTA_AGENT_ID || '';
+  // AGENT Principal (for token exchange only, NOT login)
+  // Uses private_key_jwt authentication for ID-JAG and MCP access token exchanges
+  const agentPrincipalId = process.env.NEXT_PUBLIC_OKTA_AGENT_PRINCIPAL_ID || '';
   const agentKeyId = process.env.NEXT_PUBLIC_OKTA_AGENT_KEY_ID || '';
   const agentPrivateKeyJwk = process.env.AGENT_PRIVATE_KEY_JWK;  // Server-side only
   const agentPrivateKeyPath = process.env.AGENT_PRIVATE_KEY_PATH;  // Server-side only
@@ -151,11 +150,10 @@ export function loadConfig(): FrontendConfig {
         jwksUri: `${orgUrl}/oauth2/${customAuthServerId}/v1/keys`,
       },
 
-      // AGENT OAuth Client
-      // Used ONLY for: ID-JAG exchange (step 2)
+      // AGENT Principal (for token exchange only, NOT login)
+      // Used ONLY for: Token exchange (ID-JAG exchange, MCP access token exchange)
       agent: {
-        clientId: agentClientId,
-        agentId: agentId,
+        principalId: agentPrincipalId,
         keyId: agentKeyId,
         privateKeyJwk: agentPrivateKeyJwk,
         privateKeyPath: agentPrivateKeyPath,

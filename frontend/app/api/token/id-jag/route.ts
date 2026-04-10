@@ -3,8 +3,11 @@
  *
  * Exchange ID token for ID-JAG using Okta token exchange
  *
- * OAUTH CLIENT: AGENT OAuth Client (NOT the USER client)
+ * AUTHENTICATION: AGENT Principal (NOT the USER OAuth client)
  * AUTHORIZATION SERVER: ORG auth server (/oauth2/v1/token)
+ *
+ * NOTE: User login uses USER OAuth client + PKCE
+ *       Token exchange uses AGENT Principal + private_key_jwt
  *
  * SCOPES REQUESTED (from lib/okta-scopes.ts):
  * - oktaScopes.mcpResource (MCP resource scope):
@@ -24,11 +27,11 @@
  * - client_assertion=<signed_jwt>
  *
  * Client Assertion JWT Claims:
- * - iss: AGENT client ID (config.okta.agent.clientId)
- * - sub: AGENT client ID (same as iss)
+ * - iss: AGENT principal ID (config.okta.agent.principalId)
+ * - sub: AGENT principal ID (same as iss)
  * - aud: Okta token endpoint (config.okta.orgAuthServer.tokenEndpoint)
  * - iat: Current timestamp
- * - exp: iat + 300 (5 minutes)
+ * - exp: iat + 60 (60 seconds)
  * - jti: Unique JWT ID (random UUID)
  *
  * Client Assertion JWT Header:
@@ -55,8 +58,9 @@
  * 5. Store ID-JAG in session
  * 6. Return success response with metadata
  *
- * Note: This uses the AGENT client to exchange the user's ID token for an ID-JAG.
+ * Note: This uses the AGENT principal to exchange the user's ID token for an ID-JAG.
  * The ID-JAG scope comes ONLY from the scope parameter, not from the ID token.
+ * User login is handled separately using USER OAuth client + PKCE.
  */
 
 import { NextRequest, NextResponse } from 'next/server';

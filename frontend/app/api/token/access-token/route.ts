@@ -3,14 +3,25 @@
  *
  * Exchange ID-JAG for MCP access token using Okta custom authorization server
  *
- * OAUTH CLIENT: AGENT OAuth Client (for consistency with ID-JAG exchange)
+ * AUTHENTICATION: AGENT Principal (for consistency with ID-JAG exchange)
  * AUTHORIZATION SERVER: CUSTOM auth server (/oauth2/{serverId}/v1/token)
+ *
+ * NOTE: User login uses USER OAuth client + PKCE
+ *       Token exchange uses AGENT Principal + private_key_jwt
  *
  * CLIENT AUTHENTICATION: private_key_jwt (signed client assertion)
  * - NO client secret required
- * - Uses same AGENT client as ID-JAG exchange
+ * - Uses same AGENT principal as ID-JAG exchange
  * - client_assertion_type=urn:ietf:params:oauth:client-assertion-type:jwt-bearer
  * - client_assertion=<signed_jwt>
+ *
+ * Client Assertion JWT Claims:
+ * - iss: AGENT principal ID (config.okta.agent.principalId)
+ * - sub: AGENT principal ID (same as iss)
+ * - aud: CUSTOM auth server token endpoint (config.okta.customAuthServer.tokenEndpoint)
+ * - iat: Current timestamp
+ * - exp: iat + 60 (60 seconds)
+ * - jti: Unique JWT ID (random UUID)
  *
  * GRANT TYPE: JWT Bearer (urn:ietf:params:oauth:grant-type:jwt-bearer)
  * - The ID-JAG serves as the bearer assertion
@@ -34,13 +45,14 @@
  *    - grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer
  *    - assertion=<id_jag>
  *    - client_assertion_type=urn:ietf:params:oauth:client-assertion-type:jwt-bearer
- *    - client_assertion=<signed_jwt>
+ *    - client_assertion=<signed_jwt> (iss/sub=principalId, aud=custom token endpoint)
  * 4. Receive MCP access token in response (inherits mcpResource scope from ID-JAG)
  * 5. Store MCP access token in session
  * 6. Return success response with metadata
  *
- * Note: Uses AGENT client authentication for consistency and security (private_key_jwt).
+ * Note: Uses AGENT principal authentication for consistency and security (private_key_jwt).
  * The MCP access token contains the mcpResource scope inherited from the ID-JAG.
+ * User login is handled separately using USER OAuth client + PKCE.
  */
 
 import { NextRequest, NextResponse } from 'next/server';

@@ -2,16 +2,19 @@
  * Agent Client Assertion Builder
  *
  * Builds signed JWTs for OAuth client authentication using private_key_jwt.
- * Used in ID-JAG exchange to authenticate the AI agent client with Okta.
+ *
+ * USAGE:
+ * - Used ONLY for token exchange (ID-JAG exchange, MCP access token exchange)
+ * - NOT used for user login (user login uses USER OAuth client + PKCE)
  *
  * SECURITY:
  * - Server-side only (never expose to browser)
  * - Private key must be securely stored
- * - Short-lived tokens (5 minutes max)
+ * - Short-lived tokens (60 seconds)
  *
  * JWT Structure:
  * - Header: { alg: "RS256", kid: "{agent_key_id}" }
- * - Payload: { iss, sub, aud, iat, exp, jti }
+ * - Payload: { iss: principalId, sub: principalId, aud, iat, exp, jti }
  * - Signature: RS256 with agent private key
  */
 
@@ -54,8 +57,8 @@ export async function buildAgentClientAssertion(
   const { agent } = config.okta;
 
   // Validate configuration
-  if (!agent.clientId || !agent.keyId) {
-    throw new Error('Agent client ID and key ID must be configured');
+  if (!agent.principalId || !agent.keyId) {
+    throw new Error('Agent principal ID and key ID must be configured');
   }
 
   if (!agent.privateKeyJwk && !agent.privateKeyPath) {
@@ -84,16 +87,16 @@ export async function buildAgentClientAssertion(
 
   // Build JWT claims
   const now = Math.floor(Date.now() / 1000);
-  const exp = now + 300; // 5 minutes (short-lived)
+  const exp = now + 60; // 60 seconds (short-lived)
   const jti = crypto.randomUUID(); // Unique token ID
 
   // Sign JWT
   const jwt = await new SignJWT({
-    iss: agent.clientId, // Issuer = agent client ID
-    sub: agent.clientId, // Subject = agent client ID (same as issuer)
+    iss: agent.principalId, // Issuer = agent principal ID
+    sub: agent.principalId, // Subject = agent principal ID (same as issuer)
     aud: options.audience, // Audience = Okta token endpoint
     iat: now, // Issued at
-    exp: exp, // Expires in 5 minutes
+    exp: exp, // Expires in 60 seconds
     jti: jti, // JWT ID (prevents replay)
   })
     .setProtectedHeader({
@@ -178,7 +181,7 @@ export function validateClientAssertionClaims(jwt: string): {
 
     // Check iss === sub
     if (payload.iss !== payload.sub) {
-      errors.push('iss and sub must be equal (agent client ID)');
+      errors.push('iss and sub must be equal (agent principal ID)');
     }
 
     // Check expiration
@@ -192,10 +195,10 @@ export function validateClientAssertionClaims(jwt: string): {
       errors.push('JWT issued in the future (check clock skew)');
     }
 
-    // Check lifetime (should be short, max 5 minutes)
+    // Check lifetime (should be short, max 60 seconds)
     const lifetime = payload.exp - payload.iat;
-    if (lifetime > 300) {
-      errors.push('JWT lifetime too long (max 5 minutes)');
+    if (lifetime > 60) {
+      errors.push('JWT lifetime too long (max 60 seconds)');
     }
 
     return {

@@ -33,7 +33,7 @@ Create a `.env.local` file in the `frontend/` directory with these variables:
 # Okta Configuration
 NEXT_PUBLIC_OKTA_DOMAIN=dev-12345678.okta.com
 
-# USER OAuth Client (for user authentication)
+# USER OAuth Client (for user login via OIDC + PKCE)
 NEXT_PUBLIC_OKTA_USER_OAUTH_CLIENT_ID=0oa...xyz
 # Optional: Only if using confidential client
 OKTA_USER_OAUTH_CLIENT_SECRET=secret_here
@@ -41,10 +41,11 @@ OKTA_USER_OAUTH_CLIENT_SECRET=secret_here
 # Custom Authorization Server
 NEXT_PUBLIC_OKTA_CUSTOM_AUTH_SERVER_ID=aus...xyz
 
-# AGENT OAuth Client (for token exchanges with private_key_jwt)
-NEXT_PUBLIC_OKTA_AGENT_CLIENT_ID=0oa...abc
-NEXT_PUBLIC_OKTA_AGENT_ID=agent_id_here
-NEXT_PUBLIC_OKTA_AGENT_KEY_ID=kid_here
+# AGENT Principal (for token exchanges ONLY, NOT for login)
+# Used for: ID-JAG exchange and MCP access token exchange
+# Authentication method: private_key_jwt (signed client assertion)
+NEXT_PUBLIC_OKTA_AGENT_PRINCIPAL_ID=your_agent_principal_id
+NEXT_PUBLIC_OKTA_AGENT_KEY_ID=your_agent_key_id
 
 # Agent Private Key (choose ONE method)
 # Method 1: JWK as JSON string (recommended for production)
@@ -180,20 +181,23 @@ Based on your deployed MCP server, you should see:
 ┌─────────────────────────────────────────────────────────────┐
 │  1. User Login (OIDC + PKCE)                                │
 │     /api/auth/start → Okta → /api/auth/callback             │
+│     Client: USER OAuth Client (for login)                   │
 │     Result: ID Token + ORG Access Token (in session)        │
 └─────────────────────────────────────────────────────────────┘
               ↓
 ┌─────────────────────────────────────────────────────────────┐
 │  2. ID Token → ID-JAG Exchange                              │
 │     POST /api/token/id-jag (session-based)                  │
-│     Uses: AGENT client + private_key_jwt                    │
+│     Client: AGENT Principal + private_key_jwt               │
+│     Assertion: iss/sub=principalId, aud=ORG token endpoint  │
 │     Result: ID-JAG (in session)                             │
 └─────────────────────────────────────────────────────────────┘
               ↓
 ┌─────────────────────────────────────────────────────────────┐
 │  3. ID-JAG → MCP Access Token Exchange                      │
 │     POST /api/token/access-token (session-based)            │
-│     Uses: AGENT client + private_key_jwt                    │
+│     Client: AGENT Principal + private_key_jwt               │
+│     Assertion: iss/sub=principalId, aud=CUSTOM token endpoint│
 │     Result: MCP Access Token (in session)                   │
 └─────────────────────────────────────────────────────────────┘
               ↓
@@ -203,7 +207,73 @@ Based on your deployed MCP server, you should see:
 │     Authorization: Bearer <MCP Access Token>                │
 │     Result: List of available governance tools              │
 └─────────────────────────────────────────────────────────────┘
+
+NOTE:
+- User login (step 1) uses USER OAuth Client + PKCE
+- Token exchanges (steps 2-3) use AGENT Principal + private_key_jwt
+- Client assertions expire in 60 seconds
 ```
+
+## Client Assertion Details
+
+### Agent Principal vs USER OAuth Client
+
+**USER OAuth Client** (for login only):
+- Used in step 1 (user authentication)
+- Authentication method: PKCE (no client assertion)
+- Flow: OIDC authorization code flow
+- Scopes: openid, profile, email, okta.users.read.self, okta.users.manage.self
+
+**AGENT Principal** (for token exchanges only):
+- Used in steps 2 & 3 (ID-JAG and MCP access token exchanges)
+- Authentication method: private_key_jwt (signed client assertion)
+- NOT used for user login
+
+### ID Token → ID-JAG Exchange Assertion
+
+```json
+Header:
+{
+  "alg": "RS256",
+  "kid": "{agent_key_id}"
+}
+
+Payload:
+{
+  "iss": "{agent_principal_id}",
+  "sub": "{agent_principal_id}",
+  "aud": "https://{orgDomain}/oauth2/v1/token",
+  "iat": 1234567890,
+  "exp": 1234567950,  // iat + 60 seconds
+  "jti": "unique-uuid"
+}
+```
+
+### ID-JAG → MCP Access Token Exchange Assertion
+
+```json
+Header:
+{
+  "alg": "RS256",
+  "kid": "{agent_key_id}"
+}
+
+Payload:
+{
+  "iss": "{agent_principal_id}",
+  "sub": "{agent_principal_id}",
+  "aud": "https://{orgDomain}/oauth2/{customServerId}/v1/token",
+  "iat": 1234567890,
+  "exp": 1234567950,  // iat + 60 seconds
+  "jti": "unique-uuid"
+}
+```
+
+**Key Differences:**
+- Both use the same `iss` and `sub` (agent principal ID)
+- Only `aud` changes (ORG token endpoint vs CUSTOM token endpoint)
+- Both expire in 60 seconds
+- Each assertion has unique `jti` (prevents replay attacks)
 
 ## Security Features
 
