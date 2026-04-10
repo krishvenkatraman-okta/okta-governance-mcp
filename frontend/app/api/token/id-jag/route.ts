@@ -151,19 +151,39 @@ export async function POST(request: NextRequest) {
 
     // Handle error response
     if (!response.ok) {
-      const errorData: OktaErrorResponse = await response.json();
-      console.error('[ID-JAG Exchange] Okta error:', {
+      // Read response as text first to capture raw error
+      const responseText = await response.text();
+
+      console.error('[ID-JAG Exchange] Okta error response:', {
         status: response.status,
-        error: errorData.error,
-        description: errorData.error_description,
+        statusText: response.statusText,
+        rawResponse: responseText.substring(0, 500), // Log first 500 chars for safety
       });
 
+      // Try to parse as JSON
+      let errorData: OktaErrorResponse | null = null;
+      let parseError: string | null = null;
+
+      try {
+        errorData = JSON.parse(responseText);
+      } catch (e) {
+        parseError = 'Failed to parse error response as JSON';
+        console.error('[ID-JAG Exchange] JSON parse error:', e);
+      }
+
+      // Return detailed error information
       return NextResponse.json(
         {
           error: 'Token exchange failed',
-          okta_error: errorData.error,
-          okta_error_description: errorData.error_description,
           status: response.status,
+          statusText: response.statusText,
+          okta_error: errorData?.error || 'unknown',
+          okta_error_description: errorData?.error_description || responseText.substring(0, 200),
+          debug: {
+            parseError,
+            responsePreview: responseText.substring(0, 200),
+            endpoint: tokenEndpoint,
+          },
         },
         { status: response.status }
       );
