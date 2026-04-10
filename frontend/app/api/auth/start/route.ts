@@ -6,9 +6,25 @@
  * OAUTH CLIENT: USER OAuth Client
  * AUTHORIZATION SERVER: ORG auth server (/oauth2/v1/authorize)
  *
- * SCOPES: OIDC scopes ONLY (openid, profile, email)
- * - Governance scopes are NOT requested here
- * - Governance scopes are requested during ID-JAG exchange (/api/token/id-jag)
+ * SCOPES REQUESTED (from lib/okta-scopes.ts):
+ * - oktaScopes.login (OIDC scopes):
+ *   - openid
+ *   - profile
+ *   - email
+ * - oktaScopes.endUserApi (Governance end-user scopes):
+ *   - okta.accessRequests.catalog.read
+ *   - okta.accessRequests.request.read
+ *   - okta.governance.accessCertifications.read
+ *   - okta.governance.accessCertifications.manage
+ *   - okta.governance.delegates.manage
+ *   - okta.governance.delegates.read
+ *   - okta.governance.principalSettings.manage
+ *   - okta.governance.principalSettings.read
+ *   - okta.governance.securityAccessReviews.endUser.read
+ *   - okta.governance.securityAccessReviews.endUser.manage
+ *   - okta.users.read.self
+ *
+ * Note: MCP resource scope (governance:mcp) is requested during ID-JAG exchange
  *
  * Flow (to be implemented):
  * 1. Generate PKCE code verifier and challenge
@@ -17,7 +33,7 @@
  *    - client_id (USER OAuth client ID)
  *    - redirect_uri
  *    - response_type=code
- *    - scope=openid profile email (OIDC scopes only - no governance scopes)
+ *    - scope=[...oktaScopes.login, ...oktaScopes.endUserApi].join(' ')
  *    - state (CSRF token)
  *    - code_challenge
  *    - code_challenge_method=S256

@@ -6,22 +6,16 @@
  * OAUTH CLIENT: AGENT OAuth Client (NOT the USER client)
  * AUTHORIZATION SERVER: ORG auth server (/oauth2/v1/token)
  *
- * SCOPES: THIS IS WHERE GOVERNANCE SCOPES ARE REQUESTED
- * - NOT requested during login
- * - Requested here during ID-JAG exchange
- * - Scopes define what the AI agent can do on behalf of the user
- * - Governance scopes:
- *   - okta.accessRequests.catalog.read
- *   - okta.accessRequests.request.read
- *   - okta.governance.accessCertifications.manage
- *   - okta.governance.accessCertifications.read
- *   - okta.governance.delegates.manage
- *   - okta.governance.delegates.read
- *   - okta.governance.principalSettings.manage
- *   - okta.governance.principalSettings.read
- *   - okta.governance.securityAccessReviews.endUser.manage
- *   - okta.governance.securityAccessReviews.endUser.read
- *   - okta.users.read.self
+ * SCOPES REQUESTED (from lib/okta-scopes.ts):
+ * - oktaScopes.mcpResource (MCP resource scope):
+ *   - governance:mcp
+ *
+ * CRITICAL: Scopes in ID-JAG come ONLY from the scope parameter
+ * - ID tokens carry identity, NOT scopes
+ * - The ID-JAG receives ONLY the scopes explicitly requested here
+ * - NO scope inheritance from ID token occurs
+ *
+ * This scope grants the AI agent access to the MCP server on behalf of the user.
  *
  * CLIENT AUTHENTICATION: private_key_jwt (signed client assertion)
  * - NO client secret required
@@ -42,22 +36,25 @@
  * - kid: Agent key ID (config.okta.agent.keyId)
  *
  * Flow (to be implemented):
- * 1. Retrieve ID token from session (issued to USER client)
- * 2. Build signed client assertion JWT using AGENT private key
+ * 1. Retrieve ID token from session (issued to USER client, identity only)
+ * 2. Build signed client assertion JWT using AGENT private key:
+ *    - Header: `{ alg: "RS256", kid: "{agent_key_id}" }`
+ *    - Claims: `{ iss: "{agent_client_id}", sub: "{agent_client_id}", aud: "{org_token_endpoint}", iat, exp, jti }`
  * 3. POST to ORG token endpoint: https://{domain}/oauth2/v1/token
  *    - grant_type=urn:ietf:params:oauth:grant-type:token-exchange
- *    - subject_token=<id_token> (from USER client)
+ *    - subject_token=<id_token> (identity from USER client)
  *    - subject_token_type=urn:ietf:params:oauth:token-type:id_token
  *    - requested_token_type=urn:okta:oauth:token-type:id_jag
  *    - audience=api://mcp-governance
- *    - scope=<governance_scopes> (okta.governance.* okta.accessRequests.* okta.users.read.self)
+ *    - scope=oktaScopes.mcpResource.join(' ') (governance:mcp - EXPLICITLY requested)
  *    - client_assertion_type=urn:ietf:params:oauth:client-assertion-type:jwt-bearer
  *    - client_assertion=<signed_jwt> (signed with AGENT key)
- * 4. Receive ID-JAG in response (contains governance scopes)
+ * 4. Receive ID-JAG in response (contains ONLY mcpResource scope)
  * 5. Store ID-JAG in session
  * 6. Return success response
  *
- * Note: This uses the AGENT client to exchange the user's ID token for an ID-JAG
+ * Note: This uses the AGENT client to exchange the user's ID token for an ID-JAG.
+ * The ID-JAG scope comes ONLY from the scope parameter, not from the ID token.
  */
 
 import { NextResponse } from 'next/server';

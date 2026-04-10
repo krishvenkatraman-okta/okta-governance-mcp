@@ -94,21 +94,33 @@ Backend MCP Server → Okta Governance APIs
 
 ## Scopes Strategy
 
+**Source of Truth:** All scopes are defined in `lib/okta-scopes.ts`
+
 This application requests scopes at **two different points** in the authentication flow:
 
-### 1. OIDC Login Scopes (Step 1: `/api/auth/start`)
+### 1. Login Scopes (Step 1: `/api/auth/start`)
 
 **Requested during:** User authentication (OIDC + PKCE)
 
-**Scopes:**
+**Scope Groups (from `lib/okta-scopes.ts`):**
+
+**`oktaScopes.login`** - OIDC scopes:
 - `openid` - Required for OIDC
 - `profile` - User profile information
 - `email` - User email address
 
-**Why these only?**
-- These are standard OIDC scopes for user authentication
-- They establish user identity, not governance permissions
-- Governance scopes are NOT requested here
+**`oktaScopes.endUserApi`** - Governance end-user scopes:
+- `okta.accessRequests.catalog.read`
+- `okta.accessRequests.request.read`
+- `okta.governance.accessCertifications.read`
+- `okta.governance.accessCertifications.manage`
+- `okta.governance.delegates.manage`
+- `okta.governance.delegates.read`
+- `okta.governance.principalSettings.manage`
+- `okta.governance.principalSettings.read`
+- `okta.governance.securityAccessReviews.endUser.read`
+- `okta.governance.securityAccessReviews.endUser.manage`
+- `okta.users.read.self`
 
 **Example authorization URL:**
 ```
@@ -116,7 +128,7 @@ https://{domain}/oauth2/v1/authorize?
   client_id={user_client_id}
   &redirect_uri={redirect_uri}
   &response_type=code
-  &scope=openid%20profile%20email
+  &scope=openid%20profile%20email%20okta.accessRequests.catalog.read%20...
   &state={state}
   &code_challenge={challenge}
   &code_challenge_method=S256
@@ -124,27 +136,23 @@ https://{domain}/oauth2/v1/authorize?
 
 ---
 
-### 2. Governance Scopes (Step 2: `/api/token/id-jag`)
+### 2. MCP Resource Scopes (Step 2: `/api/token/id-jag`)
 
 **Requested during:** ID-JAG exchange (ID token → ID-JAG)
 
-**Scopes:**
-- `okta.accessRequests.catalog.read`
-- `okta.accessRequests.request.read`
-- `okta.governance.accessCertifications.manage`
-- `okta.governance.accessCertifications.read`
-- `okta.governance.delegates.manage`
-- `okta.governance.delegates.read`
-- `okta.governance.principalSettings.manage`
-- `okta.governance.principalSettings.read`
-- `okta.governance.securityAccessReviews.endUser.manage`
-- `okta.governance.securityAccessReviews.endUser.read`
-- `okta.users.read.self`
+**Scope Groups (from `lib/okta-scopes.ts`):**
 
-**Why here?**
-- Governance scopes define what the AI agent can do on behalf of the user
-- Requested when exchanging user's ID token for ID-JAG (agent-specific token)
-- The ID-JAG contains these scopes, which are then used to get the access token
+**`oktaScopes.mcpResource`** - MCP resource scope:
+- `governance:mcp`
+
+**Critical: Scopes in ID-JAG come ONLY from the scope parameter**
+- ID tokens carry identity, NOT scopes
+- The ID-JAG receives ONLY the scopes explicitly requested in this exchange
+- No scope inheritance from ID token occurs
+
+**Why this scope?**
+- This scope grants the AI agent access to the MCP server on behalf of the user
+- The MCP server validates this scope in the final access token
 
 **Example ID-JAG exchange request:**
 ```http
@@ -156,7 +164,7 @@ grant_type=urn:ietf:params:oauth:grant-type:token-exchange
 &subject_token_type=urn:ietf:params:oauth:token-type:id_token
 &requested_token_type=urn:okta:oauth:token-type:id_jag
 &audience=api://mcp-governance
-&scope=okta.governance.accessCertifications.read okta.governance.delegates.read ...
+&scope=governance:mcp
 &client_assertion_type=urn:ietf:params:oauth:client-assertion-type:jwt-bearer
 &client_assertion={signed_jwt}
 ```
@@ -166,20 +174,39 @@ grant_type=urn:ietf:params:oauth:grant-type:token-exchange
 ### Scopes Flow Summary
 
 ```
-Step 1: User Login
-  Scopes: openid, profile, email
-  Result: ID token (user identity)
+Step 1: User Login (/api/auth/start)
+  Scopes Requested: oktaScopes.login + oktaScopes.endUserApi
+  Results:
+    - ID token (user identity, NO scopes)
+    - ORG access token (with login + endUserApi scopes)
 
-Step 2: ID-JAG Exchange  ← GOVERNANCE SCOPES REQUESTED HERE
-  Scopes: okta.governance.*, okta.accessRequests.*, okta.users.read.self
-  Result: ID-JAG (user identity + governance permissions)
+Step 2: ID-JAG Exchange (/api/token/id-jag)
+  Input: ID token (identity only)
+  Scopes Requested: oktaScopes.mcpResource (governance:mcp)
+  Result: ID-JAG with ONLY mcpResource scope (explicitly requested)
+  Note: NO scope inheritance from ID token
 
-Step 3: Access Token Exchange
-  Scopes: (inherited from ID-JAG)
-  Result: Access token (used to call MCP server)
+Step 3: Access Token Exchange (/api/token/access-token)
+  Input: ID-JAG (contains mcpResource scope)
+  Scopes: Inherited from ID-JAG only
+  Result: MCP access token (with mcpResource scope, used to call MCP server)
 ```
 
-**Key Point:** Governance scopes are NEVER requested during login. They are requested during the ID-JAG exchange when the AI agent authenticates itself to act on behalf of the user.
+**Two Access Tokens Model:**
+- **ORG Access Token** (from Step 1): Contains `endUserApi` scopes
+  - Used for: End-user Okta Governance API calls
+- **MCP Access Token** (from Step 3): Contains `mcpResource` scope
+  - Used for: MCP server authentication
+
+**Scope Grouping (lib/okta-scopes.ts):**
+- `oktaScopes.login` - OIDC scopes (openid, profile, email)
+- `oktaScopes.endUserApi` - End-user governance scopes (11 scopes)
+- `oktaScopes.mcpResource` - MCP resource scope (governance:mcp)
+
+**Key Points:**
+- ID tokens carry identity, NOT scopes
+- ID-JAG scopes come ONLY from explicit scope parameter
+- All scope definitions centralized in `lib/okta-scopes.ts`
 
 ---
 
@@ -283,9 +310,9 @@ npm start
 
 **Authorization Server:** ORG (`/oauth2/v1/authorize`)
 
-**Scopes Requested:** OIDC scopes ONLY (`openid`, `profile`, `email`)
-- Governance scopes are NOT requested here
-- Governance scopes are requested during ID-JAG exchange
+**Scopes Requested (from `lib/okta-scopes.ts`):**
+- `oktaScopes.login` - OIDC scopes (openid, profile, email)
+- `oktaScopes.endUserApi` - End-user governance scopes (11 scopes)
 
 **Purpose:** Initiates Okta OIDC + PKCE authentication flow
 
@@ -295,7 +322,7 @@ npm start
 3. Build authorization URL with:
    - `client_id`: USER OAuth client ID
    - `redirect_uri`
-   - `scope`: `openid profile email` (OIDC only)
+   - `scope`: `[...oktaScopes.login, ...oktaScopes.endUserApi].join(' ')`
    - `code_challenge`
 4. Redirect user to ORG authorize endpoint: `https://{domain}/oauth2/v1/authorize`
 
@@ -315,12 +342,15 @@ npm start
 1. Receive authorization code from Okta
 2. Verify state parameter (CSRF protection)
 3. Retrieve code_verifier from session
-4. Exchange authorization code for ID token via ORG token endpoint:
+4. Exchange authorization code for tokens via ORG token endpoint:
    - `client_id`: USER OAuth client ID
    - `code`, `code_verifier`, `redirect_uri`
    - `grant_type=authorization_code`
-5. Store ID token in secure session
-6. Redirect to `/agent`
+5. Receive tokens:
+   - ID token (user identity, NO scopes)
+   - ORG access token (with login + endUserApi scopes)
+6. Store both tokens in secure session
+7. Redirect to `/agent`
 
 **Current Status:** Returns placeholder JSON showing received code/state
 
@@ -332,41 +362,31 @@ npm start
 
 **Authorization Server:** ORG (`/oauth2/v1/token`)
 
-**Scopes Requested:** THIS IS WHERE GOVERNANCE SCOPES ARE REQUESTED
-- `okta.accessRequests.catalog.read`
-- `okta.accessRequests.request.read`
-- `okta.governance.accessCertifications.manage`
-- `okta.governance.accessCertifications.read`
-- `okta.governance.delegates.manage`
-- `okta.governance.delegates.read`
-- `okta.governance.principalSettings.manage`
-- `okta.governance.principalSettings.read`
-- `okta.governance.securityAccessReviews.endUser.manage`
-- `okta.governance.securityAccessReviews.endUser.read`
-- `okta.users.read.self`
+**Scopes Requested (from `lib/okta-scopes.ts`):**
+- `oktaScopes.mcpResource` - MCP resource scope (governance:mcp)
 
 **Client Authentication:** Signed client assertion (private_key_jwt) - NO client secret required
 
 **Purpose:** Exchange ID token for ID-JAG using Okta token exchange
 
 **Will Eventually:**
-1. Retrieve ID token from session (issued to USER client)
+1. Retrieve ID token from session (identity only, NO scopes)
 2. Build signed client assertion JWT using AGENT private key:
    - Header: `{ alg: "RS256", kid: "{agent_key_id}" }`
    - Claims: `{ iss: "{agent_client_id}", sub: "{agent_client_id}", aud: "{org_token_endpoint}", iat, exp, jti }`
 3. POST to ORG token endpoint: `https://{domain}/oauth2/v1/token`:
    - grant_type: `urn:ietf:params:oauth:grant-type:token-exchange`
-   - subject_token: `<id_token>` (from USER client)
+   - subject_token: `<id_token>` (identity from USER client)
    - subject_token_type: `urn:ietf:params:oauth:token-type:id_token`
    - requested_token_type: `urn:okta:oauth:token-type:id_jag`
    - audience: `api://mcp-governance`
-   - scope: `<governance_scopes>` (**governance scopes requested here**)
+   - scope: `oktaScopes.mcpResource.join(' ')` (governance:mcp - EXPLICITLY requested)
    - client_assertion_type: `urn:ietf:params:oauth:client-assertion-type:jwt-bearer`
    - client_assertion: `<signed_jwt>` (signed with AGENT private key)
-4. Store ID-JAG in session (contains governance scopes)
+4. Store ID-JAG in session (contains ONLY mcpResource scope)
 5. Return success
 
-**Note:** This endpoint uses the AGENT client to exchange the user's ID token for an ID-JAG. This is where governance scopes are added to the token.
+**Critical:** The ID-JAG scope comes ONLY from the scope parameter, not inherited from ID token.
 
 **Current Status:** Returns placeholder JSON showing token exchange parameters
 
@@ -378,7 +398,10 @@ npm start
 
 **Authorization Server:** CUSTOM (`/oauth2/{serverId}/v1/token`)
 
-**Purpose:** Exchange ID-JAG for access token using custom authorization server
+**Scopes:** Inherited from ID-JAG only (no new scopes requested)
+- `oktaScopes.mcpResource` (from ID-JAG exchange)
+
+**Purpose:** Exchange ID-JAG for final MCP access token
 
 **Will Eventually:**
 1. Retrieve ID-JAG from session
@@ -388,12 +411,11 @@ npm start
    - subject_token_type: `urn:okta:oauth:token-type:id_jag`
    - requested_token_type: `urn:ietf:params:oauth:token-type:access_token`
    - audience: `api://mcp-governance`
-   - scope: `mcp.governance`
    - client_id: `<user_oauth_client_id>` (USER client, not AGENT client)
-3. Store access token in session
+3. Store MCP access token in session (contains mcpResource scope)
 4. Return success
 
-**Note:** This endpoint uses the USER client ID, not the agent client ID.
+**Note:** The MCP access token inherits the mcpResource scope from ID-JAG and is used to call the MCP server. The ORG access token (from login) with endUserApi scopes is used separately for end-user API calls.
 
 **Current Status:** Returns placeholder JSON showing token exchange parameters
 

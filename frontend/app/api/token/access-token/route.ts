@@ -1,10 +1,21 @@
 /**
  * API Route: /api/token/access-token
  *
- * Exchange ID-JAG for access token using Okta custom authorization server
+ * Exchange ID-JAG for MCP access token using Okta custom authorization server
  *
  * OAUTH CLIENT: USER OAuth Client (back to the USER client)
  * AUTHORIZATION SERVER: CUSTOM auth server (/oauth2/{serverId}/v1/token)
+ *
+ * SCOPES:
+ * - No new scopes requested in this step
+ * - The MCP access token inherits scopes from ID-JAG ONLY:
+ *   - oktaScopes.mcpResource (from ID-JAG exchange)
+ *
+ * This is the final token exchange step. The resulting MCP access token is used
+ * to authenticate with the MCP server.
+ *
+ * Note: The ORG access token (from login) contains oktaScopes.endUserApi and is
+ * used separately for end-user Okta Governance API calls.
  *
  * Flow (to be implemented):
  * 1. Retrieve ID-JAG from session
@@ -14,13 +25,14 @@
  *    - subject_token_type=urn:okta:oauth:token-type:id_jag
  *    - requested_token_type=urn:ietf:params:oauth:token-type:access_token
  *    - audience=api://mcp-governance
- *    - scope=mcp.governance
  *    - client_id (USER OAuth client ID, NOT AGENT client ID)
- * 3. Receive access token in response
- * 4. Store access token in session
+ * 3. Receive MCP access token in response (inherits mcpResource scope from ID-JAG)
+ * 4. Store MCP access token in session
  * 5. Return success response
  *
- * Note: This uses the USER OAuth client ID, not the AGENT client ID
+ * Note: This uses the USER OAuth client ID, not the AGENT client ID.
+ * The MCP access token is used to call the MCP server and contains only the
+ * mcpResource scope inherited from the ID-JAG.
  */
 
 import { NextResponse } from 'next/server';
