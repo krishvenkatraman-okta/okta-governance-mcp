@@ -11,6 +11,7 @@
 
 import { useState, useEffect } from 'react';
 import AgentHeader from '@/components/AgentHeader';
+import DebugTokenPanel from '@/components/DebugTokenPanel';
 import { uiConfig } from '@/lib/ui-config';
 
 interface TokenState {
@@ -41,6 +42,7 @@ export default function AgentPage() {
   const [loading, setLoading] = useState<Record<string, boolean>>({});
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [showDebugPanel, setShowDebugPanel] = useState(false);
 
   // Check token state on mount
   useEffect(() => {
@@ -336,7 +338,7 @@ export default function AgentPage() {
 
         {/* Tools Display (placeholder) */}
         {tools.length > 0 && (
-          <div className="bg-white rounded-lg shadow-md p-6">
+          <div className="bg-white rounded-lg shadow-md p-6 mb-6">
             <h2
               className="text-xl font-semibold mb-4"
               style={{ color: uiConfig.colors.gray900 }}
@@ -362,6 +364,23 @@ export default function AgentPage() {
                 </div>
               ))}
             </div>
+          </div>
+        )}
+
+        {/* Debug Panel Toggle */}
+        <div className="mb-6">
+          <button
+            onClick={() => setShowDebugPanel(!showDebugPanel)}
+            className="text-sm px-4 py-2 bg-gray-800 text-white rounded-lg hover:bg-gray-700"
+          >
+            {showDebugPanel ? 'Hide Debug Panel' : 'Show Debug Panel (Local Only)'}
+          </button>
+        </div>
+
+        {/* Debug Token Panel */}
+        {showDebugPanel && (
+          <div className="mb-6">
+            <DebugTokenPanel />
           </div>
         )}
       </main>

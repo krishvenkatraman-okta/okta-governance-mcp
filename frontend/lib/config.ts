@@ -95,6 +95,10 @@ export interface FrontendConfig {
     scopes: string[];  // OIDC scopes ONLY (openid, profile, email) - NOT governance scopes
                        // Governance scopes are requested during ID-JAG exchange, not login
   };
+
+  debug: {
+    exposeTokens: boolean;  // If true, debug API will return raw tokens (LOCAL USE ONLY)
+  };
 }
 
 /**
@@ -126,6 +130,9 @@ export function loadConfig(): FrontendConfig {
 
   // OAuth redirect
   const redirectUri = process.env.NEXT_PUBLIC_REDIRECT_URI || 'http://localhost:3000/api/auth/callback';
+
+  // Debug (LOCAL USE ONLY - never enable in production)
+  const debugExposeTokens = process.env.DEBUG_EXPOSE_TOKENS === 'true';
 
   return {
     okta: {
@@ -181,6 +188,10 @@ export function loadConfig(): FrontendConfig {
       redirectUri,
       scopes: ['openid', 'profile', 'email'],  // OIDC scopes ONLY (for user login)
                                                 // Governance scopes are requested during ID-JAG exchange
+    },
+
+    debug: {
+      exposeTokens: debugExposeTokens,  // LOCAL USE ONLY - never enable in production
     },
   };
 }
