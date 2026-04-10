@@ -40,11 +40,15 @@ export interface FrontendConfig {
     domain: string;
 
     // USER OAuth Client
-    // Used for: User authentication (OIDC + PKCE) and access token exchange
-    // This is the OAuth 2.0 application that the user logs into
+    // Used for: User authentication (OIDC + PKCE)
+    // This is the OAuth 2.0 web application that the user logs into
+    // Client Authentication: Public key / Private key (private_key_jwt)
+    // Additional Verification: PKCE required
     userOAuthClient: {
       clientId: string;               // User OAuth client ID
-      clientSecret?: string;          // Optional: Only if using confidential client (server-side only)
+      keyId: string;                  // Key ID (kid) for signing client assertions
+      privateKeyJwk?: string;         // User OAuth client private key as JWK (JSON string, server-side only)
+      privateKeyPath?: string;        // Alternative: path to private key file (server-side only)
     };
 
     // ORG Authorization Server
@@ -101,9 +105,11 @@ export function loadConfig(): FrontendConfig {
   const oktaDomain = process.env.NEXT_PUBLIC_OKTA_DOMAIN || '';
   const orgUrl = oktaDomain.startsWith('https://') ? oktaDomain : `https://${oktaDomain}`;
 
-  // USER OAuth Client (for user authentication and access token exchange)
+  // USER OAuth Client (for user authentication with PKCE + private_key_jwt)
   const userOAuthClientId = process.env.NEXT_PUBLIC_OKTA_USER_OAUTH_CLIENT_ID || '';
-  const userOAuthClientSecret = process.env.OKTA_USER_OAUTH_CLIENT_SECRET;  // Server-side only (optional)
+  const userOAuthKeyId = process.env.NEXT_PUBLIC_OKTA_USER_OAUTH_KEY_ID || '';
+  const userOAuthPrivateKeyJwk = process.env.USER_OAUTH_PRIVATE_KEY_JWK;  // Server-side only
+  const userOAuthPrivateKeyPath = process.env.USER_OAUTH_PRIVATE_KEY_PATH;  // Server-side only
 
   // Custom authorization server ID
   const customAuthServerId = process.env.NEXT_PUBLIC_OKTA_CUSTOM_AUTH_SERVER_ID || 'default';
@@ -126,10 +132,12 @@ export function loadConfig(): FrontendConfig {
       domain: oktaDomain,
 
       // USER OAuth Client
-      // Used for: User authentication (step 1) and access token exchange (step 3)
+      // Used for: User authentication (OIDC + PKCE + private_key_jwt)
       userOAuthClient: {
         clientId: userOAuthClientId,
-        clientSecret: userOAuthClientSecret,
+        keyId: userOAuthKeyId,
+        privateKeyJwk: userOAuthPrivateKeyJwk,
+        privateKeyPath: userOAuthPrivateKeyPath,
       },
 
       // ORG Authorization Server

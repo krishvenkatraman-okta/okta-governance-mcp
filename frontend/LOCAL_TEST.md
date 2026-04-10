@@ -33,10 +33,19 @@ Create a `.env.local` file in the `frontend/` directory with these variables:
 # Okta Configuration
 NEXT_PUBLIC_OKTA_DOMAIN=dev-12345678.okta.com
 
-# USER OAuth Client (for user login via OIDC + PKCE)
+# USER OAuth Client (Web app for user login)
+# Client authentication: Public key / Private key (private_key_jwt)
+# Additional verification: PKCE required
+# Used for: User authentication callback (authorization code → tokens)
 NEXT_PUBLIC_OKTA_USER_OAUTH_CLIENT_ID=0oa...xyz
-# Optional: Only if using confidential client
-OKTA_USER_OAUTH_CLIENT_SECRET=secret_here
+NEXT_PUBLIC_OKTA_USER_OAUTH_KEY_ID=your_user_oauth_key_id
+
+# USER OAuth Client Private Key (choose ONE method)
+# Method 1: JWK as JSON string (recommended for production)
+USER_OAUTH_PRIVATE_KEY_JWK='{"kty":"RSA","n":"...","e":"AQAB","d":"...","p":"...","q":"...","dp":"...","dq":"...","qi":"..."}'
+
+# Method 2: Path to PEM file (for local development)
+USER_OAUTH_PRIVATE_KEY_PATH=/path/to/user_oauth_private_key.pem
 
 # Custom Authorization Server
 NEXT_PUBLIC_OKTA_CUSTOM_AUTH_SERVER_ID=aus...xyz
@@ -47,12 +56,12 @@ NEXT_PUBLIC_OKTA_CUSTOM_AUTH_SERVER_ID=aus...xyz
 NEXT_PUBLIC_OKTA_AGENT_PRINCIPAL_ID=your_agent_principal_id
 NEXT_PUBLIC_OKTA_AGENT_KEY_ID=your_agent_key_id
 
-# Agent Private Key (choose ONE method)
+# AGENT Principal Private Key (choose ONE method)
 # Method 1: JWK as JSON string (recommended for production)
 AGENT_PRIVATE_KEY_JWK='{"kty":"RSA","n":"...","e":"AQAB","d":"...","p":"...","q":"...","dp":"...","dq":"...","qi":"..."}'
 
 # Method 2: Path to PEM file (for local development)
-AGENT_PRIVATE_KEY_PATH=/path/to/private_key.pem
+AGENT_PRIVATE_KEY_PATH=/path/to/agent_private_key.pem
 
 # MCP Server
 NEXT_PUBLIC_MCP_BASE_URL=https://your-mcp-server.onrender.com
@@ -209,25 +218,54 @@ Based on your deployed MCP server, you should see:
 └─────────────────────────────────────────────────────────────┘
 
 NOTE:
-- User login (step 1) uses USER OAuth Client + PKCE
+- User login (step 1) uses USER OAuth Client + PKCE + private_key_jwt
 - Token exchanges (steps 2-3) use AGENT Principal + private_key_jwt
-- Client assertions expire in 60 seconds
+- All client assertions expire in 60 seconds
 ```
 
 ## Client Assertion Details
 
-### Agent Principal vs USER OAuth Client
+### USER OAuth Client vs AGENT Principal
 
-**USER OAuth Client** (for login only):
-- Used in step 1 (user authentication)
-- Authentication method: PKCE (no client assertion)
-- Flow: OIDC authorization code flow
+**USER OAuth Client** (for login callback only):
+- Used in step 1 (user authentication callback)
+- Authentication method: PKCE + private_key_jwt (BOTH required)
+- Flow: OIDC authorization code flow with PKCE
+- Client type: Web app configured with Public key / Private key
 - Scopes: openid, profile, email, okta.users.read.self, okta.users.manage.self
 
 **AGENT Principal** (for token exchanges only):
 - Used in steps 2 & 3 (ID-JAG and MCP access token exchanges)
 - Authentication method: private_key_jwt (signed client assertion)
 - NOT used for user login
+
+### User Login Callback Assertion (Authorization Code → Tokens)
+
+```json
+Header:
+{
+  "alg": "RS256",
+  "kid": "{user_oauth_key_id}"
+}
+
+Payload:
+{
+  "iss": "{user_oauth_client_id}",
+  "sub": "{user_oauth_client_id}",
+  "aud": "https://{orgDomain}/oauth2/v1/token",
+  "iat": 1234567890,
+  "exp": 1234567950,  // iat + 60 seconds
+  "jti": "unique-uuid"
+}
+```
+
+**Request Parameters:**
+- grant_type: authorization_code
+- code: {authorization_code}
+- redirect_uri: {callback_url}
+- code_verifier: {pkce_code_verifier}
+- client_assertion_type: urn:ietf:params:oauth:client-assertion-type:jwt-bearer
+- client_assertion: {signed_jwt}
 
 ### ID Token → ID-JAG Exchange Assertion
 
@@ -269,21 +307,35 @@ Payload:
 }
 ```
 
-**Key Differences:**
+**Key Differences (AGENT Principal Assertions):**
 - Both use the same `iss` and `sub` (agent principal ID)
 - Only `aud` changes (ORG token endpoint vs CUSTOM token endpoint)
 - Both expire in 60 seconds
 - Each assertion has unique `jti` (prevents replay attacks)
+
+### Summary: Three Client Assertions
+
+| Aspect | USER OAuth (Callback) | AGENT Principal (ID-JAG) | AGENT Principal (MCP Token) |
+|--------|----------------------|--------------------------|------------------------------|
+| **Used For** | Authorization code → tokens | ID token → ID-JAG | ID-JAG → MCP token |
+| **iss/sub** | USER OAuth client ID | AGENT principal ID | AGENT principal ID |
+| **aud** | `https://{org}/oauth2/v1/token` | `https://{org}/oauth2/v1/token` | `https://{org}/oauth2/{customId}/v1/token` |
+| **kid** | USER OAuth key ID | AGENT key ID | AGENT key ID |
+| **Expiration** | 60 seconds | 60 seconds | 60 seconds |
+| **Additional Auth** | PKCE (code_verifier) | None | None |
+| **Private Key** | USER OAuth private key | AGENT private key | AGENT private key |
 
 ## Security Features
 
 ✅ **All tokens stored server-side** - Encrypted session cookies (iron-session)
 ✅ **No tokens in responses** - UI only receives status and metadata
 ✅ **No tokens in logs** - Only user IDs and operation status logged
-✅ **PKCE for authentication** - Secure authorization code flow
-✅ **private_key_jwt for agent** - No client secrets, signed assertions only
+✅ **PKCE for authentication** - Secure authorization code flow with additional verification
+✅ **private_key_jwt for USER OAuth** - No client secrets for user login, signed assertions only
+✅ **private_key_jwt for AGENT** - No client secrets for token exchanges, signed assertions only
 ✅ **httpOnly session cookies** - Not accessible to JavaScript
 ✅ **State parameter validation** - CSRF protection
+✅ **Dual authentication** - USER callback uses BOTH PKCE + client assertion
 
 ## Troubleshooting
 

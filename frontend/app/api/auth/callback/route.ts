@@ -3,31 +3,51 @@
  *
  * OAuth callback handler after Okta authentication
  *
- * OAUTH CLIENT: USER OAuth Client
+ * OAUTH CLIENT: USER OAuth Client (Web app)
  * AUTHORIZATION SERVER: ORG auth server (/oauth2/v1/token)
+ *
+ * CLIENT AUTHENTICATION:
+ * - Method: Public key / Private key (private_key_jwt)
+ * - Additional verification: PKCE required
+ * - Uses BOTH: client assertion + code_verifier
+ *
+ * Client Assertion JWT Claims:
+ * - iss: USER OAuth client ID (config.okta.userOAuthClient.clientId)
+ * - sub: USER OAuth client ID (same as iss)
+ * - aud: ORG token endpoint (config.okta.orgAuthServer.tokenEndpoint)
+ * - iat: Current timestamp
+ * - exp: iat + 60 (60 seconds)
+ * - jti: Unique JWT ID (random UUID)
+ *
+ * Client Assertion JWT Header:
+ * - alg: RS256
+ * - kid: USER OAuth key ID (config.okta.userOAuthClient.keyId)
  *
  * Flow:
  * 1. Receive authorization code from Okta
  * 2. Verify state parameter (CSRF protection)
  * 3. Retrieve code_verifier from session
- * 4. Exchange authorization code for tokens:
+ * 4. Build signed client assertion JWT using USER OAuth client private key
+ * 5. Exchange authorization code for tokens:
  *    POST to ORG token endpoint: https://{domain}/oauth2/v1/token
  *    - grant_type=authorization_code
  *    - code
  *    - redirect_uri
- *    - client_id (USER OAuth client ID)
  *    - code_verifier (PKCE)
- * 5. Receive id_token and access_token
- * 6. Store id_token and access_token in secure session
- * 7. Extract and store user info from id_token
- * 8. Redirect to /agent
+ *    - client_assertion_type=urn:ietf:params:oauth:client-assertion-type:jwt-bearer
+ *    - client_assertion=<signed_jwt> (iss/sub=clientId, aud=ORG token endpoint)
+ * 6. Receive id_token and access_token
+ * 7. Store id_token and access_token in secure session
+ * 8. Extract and store user info from id_token
+ * 9. Redirect to /agent
  *
- * Note: The id_token will later be exchanged for ID-JAG using the AGENT client
+ * Note: The id_token will later be exchanged for ID-JAG using the AGENT principal
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { config } from '@/lib/config';
 import { getSession } from '@/lib/session';
+import { buildUserClientAssertion } from '@/lib/user-client-assertion';
 import { decodeJwt } from 'jose';
 
 interface TokenResponse {
@@ -107,14 +127,22 @@ export async function GET(request: NextRequest) {
 
     console.log('[Auth Callback] Code verifier retrieved from session');
 
-    // 3. Exchange authorization code for tokens
+    // 3. Build signed client assertion for USER OAuth client
     const tokenEndpoint = config.okta.orgAuthServer.tokenEndpoint;
+    const clientAssertion = await buildUserClientAssertion({
+      audience: tokenEndpoint,
+    });
+
+    console.log('[Auth Callback] Client assertion generated successfully');
+
+    // 4. Exchange authorization code for tokens
     const requestBody = new URLSearchParams({
       grant_type: 'authorization_code',
       code: code,
       redirect_uri: config.oauth.redirectUri,
-      client_id: config.okta.userOAuthClient.clientId,
       code_verifier: codeVerifier,
+      client_assertion_type: 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer',
+      client_assertion: clientAssertion,
     });
 
     console.log('[Auth Callback] Exchanging code for tokens at ORG auth server');
@@ -152,7 +180,7 @@ export async function GET(request: NextRequest) {
 
     console.log('[Auth Callback] Token exchange successful');
 
-    // 4. Decode ID token to extract user info (no verification needed here, just extraction)
+    // 5. Decode ID token to extract user info (no verification needed here, just extraction)
     const idToken = tokenResponse.id_token;
     const decoded = decodeJwt(idToken);
 
@@ -161,7 +189,7 @@ export async function GET(request: NextRequest) {
 
     console.log('[Auth Callback] User info extracted:', { userId, userEmail });
 
-    // 5. Store tokens and user info in session
+    // 6. Store tokens and user info in session
     session.idToken = idToken;
     session.orgAccessToken = tokenResponse.access_token;
     session.userId = userId;
@@ -183,7 +211,7 @@ export async function GET(request: NextRequest) {
 
     console.log('[Auth Callback] Session updated with tokens and user info');
 
-    // 6. Redirect to /agent page
+    // 7. Redirect to /agent page
     const agentUrl = new URL('/agent', request.url);
     return NextResponse.redirect(agentUrl);
   } catch (error) {
