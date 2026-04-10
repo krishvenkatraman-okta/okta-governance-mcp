@@ -35,8 +35,8 @@
  * - alg: RS256
  * - kid: Agent key ID (config.okta.agent.keyId)
  *
- * Flow (to be implemented):
- * 1. Retrieve ID token from session (issued to USER client, identity only)
+ * Flow:
+ * 1. Retrieve ID token from request body (session management not yet implemented)
  * 2. Build signed client assertion JWT using lib/agent-client-assertion.ts:
  *    - buildAgentClientAssertion({ audience: orgAuthServer.tokenEndpoint })
  *    - Returns signed JWT with:
@@ -46,48 +46,162 @@
  *    - grant_type=urn:ietf:params:oauth:grant-type:token-exchange
  *    - subject_token=<id_token> (identity from USER client)
  *    - subject_token_type=urn:ietf:params:oauth:token-type:id_token
- *    - requested_token_type=urn:okta:oauth:token-type:id_jag
- *    - audience=api://mcp-governance
+ *    - requested_token_type=urn:ietf:params:oauth:token-type:id-jag
+ *    - audience=<custom_auth_server_issuer>
  *    - scope=oktaScopes.mcpResource.join(' ') (governance:mcp - EXPLICITLY requested)
  *    - client_assertion_type=urn:ietf:params:oauth:client-assertion-type:jwt-bearer
  *    - client_assertion=<signed_jwt> (signed with AGENT key)
  * 4. Receive ID-JAG in response (contains ONLY mcpResource scope)
- * 5. Store ID-JAG in session
- * 6. Return success response
+ * 5. TODO: Store ID-JAG in session
+ * 6. Return success response with metadata
  *
  * Note: This uses the AGENT client to exchange the user's ID token for an ID-JAG.
  * The ID-JAG scope comes ONLY from the scope parameter, not from the ID token.
  */
 
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { config } from '@/lib/config';
+import { oktaScopes } from '@/lib/okta-scopes';
+import { buildAgentClientAssertion } from '@/lib/agent-client-assertion';
+import { decodeJwt } from 'jose';
 
-export async function POST() {
+interface TokenExchangeResponse {
+  access_token: string;
+  issued_token_type: string;
+  token_type: string;
+  expires_in: number;
+  scope?: string;
+}
+
+interface OktaErrorResponse {
+  error: string;
+  error_description?: string;
+}
+
+export async function POST(request: NextRequest) {
   try {
-    // TODO: Implement ID-JAG exchange
-    // 1. Get ID token from session
-    // 2. Call Okta token exchange endpoint
-    // 3. Store ID-JAG
-    // 4. Return success
+    // 1. Get ID token from request body
+    // TODO: Replace with session retrieval once session management is implemented
+    const body = await request.json();
+    const idToken = body.id_token;
 
-    // Placeholder response
-    return NextResponse.json({
-      message: 'ID-JAG exchange endpoint - not yet implemented',
-      next_step: 'Will exchange ID token for ID-JAG using signed client assertion',
-      authorization_server: 'ORG (/oauth2/v1/...)',
-      client_authentication: 'private_key_jwt (no client secret)',
-      token_exchange: {
-        endpoint: config.okta.orgAuthServer.tokenEndpoint,
-        grant_type: 'urn:ietf:params:oauth:grant-type:token-exchange',
-        requested_token_type: 'urn:okta:oauth:token-type:id_jag',
-        audience: 'api://mcp-governance',
-        client_assertion_type: 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer',
+    if (!idToken) {
+      return NextResponse.json(
+        {
+          error: 'Missing ID token',
+          message: 'id_token is required in request body',
+        },
+        { status: 400 }
+      );
+    }
+
+    console.log('[ID-JAG Exchange] Starting token exchange for agent client');
+
+    // 2. Build signed client assertion
+    const clientAssertion = await buildAgentClientAssertion({
+      audience: config.okta.orgAuthServer.tokenEndpoint,
+    });
+
+    console.log('[ID-JAG Exchange] Client assertion generated successfully');
+
+    // 3. Prepare token exchange request
+    const tokenEndpoint = config.okta.orgAuthServer.tokenEndpoint;
+    const requestBody = new URLSearchParams({
+      grant_type: 'urn:ietf:params:oauth:grant-type:token-exchange',
+      requested_token_type: 'urn:ietf:params:oauth:token-type:id-jag',
+      subject_token: idToken,
+      subject_token_type: 'urn:ietf:params:oauth:token-type:id_token',
+      audience: config.okta.customAuthServer.issuer, // Custom auth server issuer
+      scope: oktaScopes.mcpResource.join(' '), // governance:mcp
+      client_assertion_type: 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer',
+      client_assertion: clientAssertion,
+    });
+
+    console.log('[ID-JAG Exchange] Calling Okta token endpoint:', tokenEndpoint);
+
+    // 4. Make token exchange request
+    const response = await fetch(tokenEndpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Accept: 'application/json',
       },
+      body: requestBody.toString(),
+    });
+
+    // Handle error response
+    if (!response.ok) {
+      const errorData: OktaErrorResponse = await response.json();
+      console.error('[ID-JAG Exchange] Okta error:', {
+        status: response.status,
+        error: errorData.error,
+        description: errorData.error_description,
+      });
+
+      return NextResponse.json(
+        {
+          error: 'Token exchange failed',
+          okta_error: errorData.error,
+          okta_error_description: errorData.error_description,
+          status: response.status,
+        },
+        { status: response.status }
+      );
+    }
+
+    // Parse success response
+    const tokenResponse: TokenExchangeResponse = await response.json();
+
+    console.log('[ID-JAG Exchange] Token exchange successful', {
+      issued_token_type: tokenResponse.issued_token_type,
+      token_type: tokenResponse.token_type,
+      expires_in: tokenResponse.expires_in,
+      scope: tokenResponse.scope,
+    });
+
+    // 5. Decode ID-JAG metadata (without verification, for response only)
+    const idJagToken = tokenResponse.access_token;
+    const decoded = decodeJwt(idJagToken);
+
+    // 6. TODO: Store ID-JAG in session (not yet implemented)
+
+    // 7. Return success with metadata (NOT full token)
+    const claims: Record<string, unknown> = {
+      iss: decoded.iss,
+      sub: decoded.sub,
+      aud: decoded.aud,
+      exp: decoded.exp,
+      iat: decoded.iat,
+    };
+
+    // Include scope claim if present
+    if (decoded.scp) {
+      claims.scp = decoded.scp;
+    }
+
+    return NextResponse.json({
+      success: true,
+      message: 'ID-JAG exchange successful',
+      metadata: {
+        issued_token_type: tokenResponse.issued_token_type,
+        token_type: tokenResponse.token_type,
+        expires_in: tokenResponse.expires_in,
+        scope: tokenResponse.scope,
+        claims,
+      },
+      next_step: 'Store ID-JAG in session and use for access token exchange',
     });
   } catch (error) {
-    console.error('ID-JAG exchange error:', error);
+    console.error('[ID-JAG Exchange] Error:', error);
+
+    // Log error without exposing sensitive data
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+
     return NextResponse.json(
-      { error: 'Failed to exchange ID token for ID-JAG' },
+      {
+        error: 'Failed to exchange ID token for ID-JAG',
+        message: errorMessage,
+      },
       { status: 500 }
     );
   }
