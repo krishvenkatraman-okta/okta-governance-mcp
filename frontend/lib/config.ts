@@ -1,28 +1,83 @@
 /**
  * Frontend configuration for Okta and MCP
  *
- * Centralized configuration for:
- * - Okta domain and authorization servers
- * - MCP backend URL
- * - OAuth/OIDC settings
+ * IMPORTANT: Two OAuth Clients
+ * =============================
+ *
+ * This application uses TWO separate OAuth clients for different purposes:
+ *
+ * 1. USER OAuth Client (okta.userOAuthClient):
+ *    - Used for: User authentication (OIDC + PKCE)
+ *    - Used for: Access token exchange (step 3)
+ *    - Type: Public client (PKCE) or Confidential client (with secret)
+ *
+ * 2. AGENT OAuth Client (okta.agent):
+ *    - Used for: ID-JAG exchange (step 2)
+ *    - Type: Confidential client with private_key_jwt authentication
+ *    - Requires: Private key for signing client assertions
+ *
+ * Authentication Flow:
+ * ====================
+ *
+ * 1. User authentication (OIDC + PKCE) → ORG authorization server
+ *    Client: USER OAuth client
+ *
+ * 2. ID token → ID-JAG exchange → ORG authorization server
+ *    Client: AGENT OAuth client (signed client assertion)
+ *
+ * 3. ID-JAG → access token exchange → CUSTOM authorization server
+ *    Client: USER OAuth client
+ *
+ * 4. Access token → call MCP server
+ *
+ * Authorization Servers:
+ * - ORG Auth Server: /oauth2/v1/... (steps 1-2)
+ * - CUSTOM Auth Server: /oauth2/{serverId}/v1/... (step 3)
  */
 
 export interface FrontendConfig {
   okta: {
     domain: string;
-    clientId: string;
+
+    // USER OAuth Client
+    // Used for: User authentication (OIDC + PKCE) and access token exchange
+    // This is the OAuth 2.0 application that the user logs into
+    userOAuthClient: {
+      clientId: string;               // User OAuth client ID
+      clientSecret?: string;          // Optional: Only if using confidential client (server-side only)
+    };
+
+    // ORG Authorization Server
+    // Used for: OIDC authentication and ID-JAG exchange
     orgAuthServer: {
       issuer: string;
-      tokenEndpoint: string;
+      authorizeEndpoint: string;  // For OIDC flow
+      tokenEndpoint: string;       // For code exchange and ID-JAG exchange
       jwksUri: string;
     };
+
+    // CUSTOM Authorization Server
+    // Used for: ID-JAG → access token exchange
     customAuthServer: {
+      serverId: string;
       issuer: string;
-      tokenEndpoint: string;
-      authorizeEndpoint: string;
+      tokenEndpoint: string;  // For ID-JAG → access token exchange
       jwksUri: string;
+    };
+
+    // AGENT OAuth Client
+    // Used ONLY for: ID-JAG exchange (step 2)
+    // This is a separate OAuth client registered for the AI agent
+    // Uses private_key_jwt authentication (signed client assertion)
+    agent: {
+      clientId: string;           // AI agent OAuth client ID (different from user client)
+      agentId: string;            // Agent identifier
+      keyId: string;              // Key ID (kid) for signing client assertions
+      privateKeyJwk?: string;     // Agent private key as JWK (JSON string, server-side only)
+      privateKeyPath?: string;    // Alternative: path to private key file (server-side only)
     };
   };
+
   mcp: {
     baseUrl: string;
     endpoints: {
@@ -31,9 +86,10 @@ export interface FrontendConfig {
       discovery: string;
     };
   };
+
   oauth: {
     redirectUri: string;
-    scopes: string[];
+    scopes: string[];  // Scopes for OIDC flow
   };
 }
 
@@ -41,30 +97,70 @@ export interface FrontendConfig {
  * Load configuration from environment variables
  */
 export function loadConfig(): FrontendConfig {
+  // Okta domain
   const oktaDomain = process.env.NEXT_PUBLIC_OKTA_DOMAIN || '';
-  const clientId = process.env.NEXT_PUBLIC_OKTA_CLIENT_ID || '';
-  const customAuthServer = process.env.NEXT_PUBLIC_OKTA_CUSTOM_AUTH_SERVER || 'default';
-  const mcpBaseUrl = process.env.NEXT_PUBLIC_MCP_BASE_URL || 'http://localhost:3002';
-  const redirectUri = process.env.NEXT_PUBLIC_REDIRECT_URI || 'http://localhost:3000/api/auth/callback';
-
   const orgUrl = oktaDomain.startsWith('https://') ? oktaDomain : `https://${oktaDomain}`;
+
+  // USER OAuth Client (for user authentication and access token exchange)
+  const userOAuthClientId = process.env.NEXT_PUBLIC_OKTA_USER_OAUTH_CLIENT_ID || '';
+  const userOAuthClientSecret = process.env.OKTA_USER_OAUTH_CLIENT_SECRET;  // Server-side only (optional)
+
+  // Custom authorization server ID
+  const customAuthServerId = process.env.NEXT_PUBLIC_OKTA_CUSTOM_AUTH_SERVER_ID || 'default';
+
+  // AGENT OAuth Client (for ID-JAG exchange with signed client assertion)
+  const agentClientId = process.env.NEXT_PUBLIC_OKTA_AGENT_CLIENT_ID || '';
+  const agentId = process.env.NEXT_PUBLIC_OKTA_AGENT_ID || '';
+  const agentKeyId = process.env.NEXT_PUBLIC_OKTA_AGENT_KEY_ID || '';
+  const agentPrivateKeyJwk = process.env.AGENT_PRIVATE_KEY_JWK;  // Server-side only
+  const agentPrivateKeyPath = process.env.AGENT_PRIVATE_KEY_PATH;  // Server-side only
+
+  // MCP server
+  const mcpBaseUrl = process.env.NEXT_PUBLIC_MCP_BASE_URL || 'http://localhost:3002';
+
+  // OAuth redirect
+  const redirectUri = process.env.NEXT_PUBLIC_REDIRECT_URI || 'http://localhost:3000/api/auth/callback';
 
   return {
     okta: {
       domain: oktaDomain,
-      clientId,
+
+      // USER OAuth Client
+      // Used for: User authentication (step 1) and access token exchange (step 3)
+      userOAuthClient: {
+        clientId: userOAuthClientId,
+        clientSecret: userOAuthClientSecret,
+      },
+
+      // ORG Authorization Server
+      // Used for: OIDC + PKCE authentication (step 1) and ID-JAG exchange (step 2)
       orgAuthServer: {
-        issuer: `${orgUrl}`,
+        issuer: orgUrl,
+        authorizeEndpoint: `${orgUrl}/oauth2/v1/authorize`,
         tokenEndpoint: `${orgUrl}/oauth2/v1/token`,
         jwksUri: `${orgUrl}/oauth2/v1/keys`,
       },
+
+      // CUSTOM Authorization Server
+      // Used for: ID-JAG → access token exchange (step 3)
       customAuthServer: {
-        issuer: `${orgUrl}/oauth2/${customAuthServer}`,
-        tokenEndpoint: `${orgUrl}/oauth2/${customAuthServer}/v1/token`,
-        authorizeEndpoint: `${orgUrl}/oauth2/${customAuthServer}/v1/authorize`,
-        jwksUri: `${orgUrl}/oauth2/${customAuthServer}/v1/keys`,
+        serverId: customAuthServerId,
+        issuer: `${orgUrl}/oauth2/${customAuthServerId}`,
+        tokenEndpoint: `${orgUrl}/oauth2/${customAuthServerId}/v1/token`,
+        jwksUri: `${orgUrl}/oauth2/${customAuthServerId}/v1/keys`,
+      },
+
+      // AGENT OAuth Client
+      // Used ONLY for: ID-JAG exchange (step 2)
+      agent: {
+        clientId: agentClientId,
+        agentId: agentId,
+        keyId: agentKeyId,
+        privateKeyJwk: agentPrivateKeyJwk,
+        privateKeyPath: agentPrivateKeyPath,
       },
     },
+
     mcp: {
       baseUrl: mcpBaseUrl,
       endpoints: {
@@ -73,9 +169,10 @@ export function loadConfig(): FrontendConfig {
         discovery: `${mcpBaseUrl}/.well-known/mcp.json`,
       },
     },
+
     oauth: {
       redirectUri,
-      scopes: ['openid', 'profile', 'email', 'mcp.governance'],
+      scopes: ['openid', 'profile', 'email'],  // OIDC scopes for org auth server
     },
   };
 }

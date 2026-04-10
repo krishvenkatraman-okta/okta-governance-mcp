@@ -10,21 +10,85 @@ This is the web interface for interacting with the Okta Governance MCP server. I
 - Dynamic tool discovery and invocation
 - Role-based UI based on user capabilities
 
+## Two OAuth Clients Explained
+
+This application uses **TWO separate OAuth clients** for different purposes:
+
+### 1. USER OAuth Client
+
+**Purpose:** User authentication and access token exchange
+
+**Used in:**
+- `/api/auth/start` - User login (OIDC + PKCE)
+- `/api/auth/callback` - Code exchange for ID token
+- `/api/token/access-token` - ID-JAG → access token exchange
+
+**Configuration:**
+- `NEXT_PUBLIC_OKTA_USER_OAUTH_CLIENT_ID` (required)
+- `OKTA_USER_OAUTH_CLIENT_SECRET` (optional, only for confidential clients)
+
+**Type:** Public client (SPA/PKCE) or Confidential web app
+
+---
+
+### 2. AGENT OAuth Client
+
+**Purpose:** ID-JAG exchange ONLY (on behalf of the AI agent)
+
+**Used in:**
+- `/api/token/id-jag` - ID token → ID-JAG exchange
+
+**Configuration:**
+- `NEXT_PUBLIC_OKTA_AGENT_CLIENT_ID` (required)
+- `NEXT_PUBLIC_OKTA_AGENT_ID` (required)
+- `NEXT_PUBLIC_OKTA_AGENT_KEY_ID` (required)
+- `AGENT_PRIVATE_KEY_JWK` or `AGENT_PRIVATE_KEY_PATH` (required, server-side only)
+
+**Type:** Confidential client with `private_key_jwt` authentication
+
+**Authentication:** Signed client assertion (JWT signed with agent private key)
+
+---
+
 ## Architecture
 
 ```
 User → Frontend (Next.js)
      ↓
-     1. Authenticate with Okta (OIDC/PKCE)
+     1. Authenticate with Okta (OIDC/PKCE) → ORG auth server
+        [USER OAuth Client]
      ↓
-     2. Exchange ID token for ID-JAG
+     2. Exchange ID token for ID-JAG → ORG auth server
+        [AGENT OAuth Client + signed client assertion]
      ↓
-     3. Exchange ID-JAG for access token
+     3. Exchange ID-JAG for access token → CUSTOM auth server
+        [USER OAuth Client]
      ↓
      4. Call MCP server with access token
      ↓
 Backend MCP Server → Okta Governance APIs
 ```
+
+### Authorization Servers
+
+**ORG Authorization Server** (`/oauth2/v1/...`):
+- Step 1: OIDC + PKCE authentication (USER client)
+- Step 2: ID token → ID-JAG exchange (AGENT client with signed assertion)
+
+**CUSTOM Authorization Server** (`/oauth2/{serverId}/v1/...`):
+- Step 3: ID-JAG → access token exchange (USER client)
+- Default server ID: `default`
+
+### Why Two Clients?
+
+**Separation of concerns:**
+- USER client = End user identity and permissions
+- AGENT client = AI agent identity and capabilities
+
+**Security:**
+- USER client can be public (PKCE, no secret)
+- AGENT client uses private_key_jwt (no shared secrets)
+- ID-JAG exchange requires agent authentication (proves the agent is authorized)
 
 ## Tech Stack
 
@@ -59,11 +123,27 @@ cp .env.example .env.local
 Update the values:
 
 ```env
+# Okta Domain
 NEXT_PUBLIC_OKTA_DOMAIN=your-domain.okta.com
-NEXT_PUBLIC_OKTA_CLIENT_ID=0oa...
-NEXT_PUBLIC_OKTA_CUSTOM_AUTH_SERVER=default
+NEXT_PUBLIC_OKTA_CUSTOM_AUTH_SERVER_ID=default
+
+# USER OAuth Client (for login and access token exchange)
+NEXT_PUBLIC_OKTA_USER_OAUTH_CLIENT_ID=0oa...
+# OKTA_USER_OAUTH_CLIENT_SECRET=...  # Optional, server-side only
+
+# AGENT OAuth Client (for ID-JAG exchange only)
+NEXT_PUBLIC_OKTA_AGENT_CLIENT_ID=0oa...
+NEXT_PUBLIC_OKTA_AGENT_ID=agent-...
+NEXT_PUBLIC_OKTA_AGENT_KEY_ID=kid-...
+AGENT_PRIVATE_KEY_JWK={"kty":"RSA",...}  # Server-side only
+
+# OAuth Configuration
 NEXT_PUBLIC_REDIRECT_URI=http://localhost:3000/api/auth/callback
+
+# MCP Server
 NEXT_PUBLIC_MCP_BASE_URL=http://localhost:3002
+
+# Session
 SESSION_SECRET=your-random-secret
 ```
 
@@ -106,13 +186,19 @@ npm start
 
 ### `/api/auth/start` (GET)
 
+**OAuth Client:** USER OAuth Client
+
+**Authorization Server:** ORG (`/oauth2/v1/authorize`)
+
 **Purpose:** Initiates Okta OIDC + PKCE authentication flow
 
 **Will Eventually:**
 1. Generate PKCE code verifier and challenge
 2. Store code verifier in secure session
-3. Build authorization URL with client_id, redirect_uri, scopes, code_challenge
-4. Redirect user to Okta authorize endpoint
+3. Build authorization URL with:
+   - `client_id`: USER OAuth client ID
+   - `redirect_uri`, `scopes`, `code_challenge`
+4. Redirect user to ORG authorize endpoint: `https://{domain}/oauth2/v1/authorize`
 
 **Current Status:** Returns placeholder JSON showing expected parameters
 
@@ -120,14 +206,21 @@ npm start
 
 ### `/api/auth/callback` (GET)
 
+**OAuth Client:** USER OAuth Client
+
+**Authorization Server:** ORG (`/oauth2/v1/token`)
+
 **Purpose:** Handles OAuth callback after Okta authentication
 
 **Will Eventually:**
 1. Receive authorization code from Okta
 2. Verify state parameter (CSRF protection)
 3. Retrieve code_verifier from session
-4. Exchange authorization code for ID token and access token
-5. Store tokens in secure session
+4. Exchange authorization code for ID token via ORG token endpoint:
+   - `client_id`: USER OAuth client ID
+   - `code`, `code_verifier`, `redirect_uri`
+   - `grant_type=authorization_code`
+5. Store ID token in secure session
 6. Redirect to `/agent`
 
 **Current Status:** Returns placeholder JSON showing received code/state
@@ -136,18 +229,31 @@ npm start
 
 ### `/api/token/id-jag` (POST)
 
+**OAuth Client:** AGENT OAuth Client (NOT the user client)
+
+**Authorization Server:** ORG (`/oauth2/v1/token`)
+
+**Client Authentication:** Signed client assertion (private_key_jwt) - NO client secret required
+
 **Purpose:** Exchange ID token for ID-JAG using Okta token exchange
 
 **Will Eventually:**
-1. Retrieve ID token from session
-2. POST to Okta token exchange endpoint:
+1. Retrieve ID token from session (issued to USER client)
+2. Build signed client assertion JWT using AGENT private key:
+   - Header: `{ alg: "RS256", kid: "{agent_key_id}" }`
+   - Claims: `{ iss: "{agent_client_id}", sub: "{agent_client_id}", aud: "{org_token_endpoint}", iat, exp, jti }`
+3. POST to ORG token endpoint: `https://{domain}/oauth2/v1/token`:
    - grant_type: `urn:ietf:params:oauth:grant-type:token-exchange`
-   - subject_token: `<id_token>`
+   - subject_token: `<id_token>` (from USER client)
    - subject_token_type: `urn:ietf:params:oauth:token-type:id_token`
    - requested_token_type: `urn:okta:oauth:token-type:id_jag`
    - audience: `api://mcp-governance`
-3. Store ID-JAG in session
-4. Return success
+   - client_assertion_type: `urn:ietf:params:oauth:client-assertion-type:jwt-bearer`
+   - client_assertion: `<signed_jwt>` (signed with AGENT private key)
+4. Store ID-JAG in session
+5. Return success
+
+**Note:** This endpoint uses the AGENT client to exchange the user's ID token for an ID-JAG.
 
 **Current Status:** Returns placeholder JSON showing token exchange parameters
 
@@ -155,19 +261,26 @@ npm start
 
 ### `/api/token/access-token` (POST)
 
+**OAuth Client:** USER OAuth Client (back to the user client)
+
+**Authorization Server:** CUSTOM (`/oauth2/{serverId}/v1/token`)
+
 **Purpose:** Exchange ID-JAG for access token using custom authorization server
 
 **Will Eventually:**
 1. Retrieve ID-JAG from session
-2. POST to Okta custom auth server token endpoint:
+2. POST to CUSTOM auth server token endpoint: `https://{domain}/oauth2/{serverId}/v1/token`:
    - grant_type: `urn:ietf:params:oauth:grant-type:token-exchange`
    - subject_token: `<id_jag>`
    - subject_token_type: `urn:okta:oauth:token-type:id_jag`
    - requested_token_type: `urn:ietf:params:oauth:token-type:access_token`
    - audience: `api://mcp-governance`
    - scope: `mcp.governance`
+   - client_id: `<user_oauth_client_id>` (USER client, not AGENT client)
 3. Store access token in session
 4. Return success
+
+**Note:** This endpoint uses the USER client ID, not the agent client ID.
 
 **Current Status:** Returns placeholder JSON showing token exchange parameters
 
@@ -237,11 +350,27 @@ frontend/
 Add these environment variables in Vercel dashboard:
 
 ```
+# Okta Domain
 NEXT_PUBLIC_OKTA_DOMAIN=your-domain.okta.com
-NEXT_PUBLIC_OKTA_CLIENT_ID=0oa...
-NEXT_PUBLIC_OKTA_CUSTOM_AUTH_SERVER=default
+NEXT_PUBLIC_OKTA_CUSTOM_AUTH_SERVER_ID=default
+
+# USER OAuth Client
+NEXT_PUBLIC_OKTA_USER_OAUTH_CLIENT_ID=0oa...
+# OKTA_USER_OAUTH_CLIENT_SECRET=...  # Optional, server-side only
+
+# AGENT OAuth Client
+NEXT_PUBLIC_OKTA_AGENT_CLIENT_ID=0oa...
+NEXT_PUBLIC_OKTA_AGENT_ID=agent-...
+NEXT_PUBLIC_OKTA_AGENT_KEY_ID=kid-...
+AGENT_PRIVATE_KEY_JWK=<your-agent-private-key-jwk>
+
+# OAuth Configuration
 NEXT_PUBLIC_REDIRECT_URI=https://your-app.vercel.app/api/auth/callback
+
+# MCP Server
 NEXT_PUBLIC_MCP_BASE_URL=https://your-mcp-server.onrender.com
+
+# Session
 SESSION_SECRET=<generate-random-secret>
 ```
 
@@ -277,17 +406,31 @@ The app uses a centralized configuration module in `lib/config.ts`:
 ```typescript
 import { config } from '@/lib/config';
 
-// Access Okta settings
+// Okta domain
 config.okta.domain
-config.okta.clientId
+
+// USER OAuth client (login + access token exchange)
+config.okta.userOAuthClient.clientId
+config.okta.userOAuthClient.clientSecret  // Optional, server-side only
+
+// AGENT OAuth client (ID-JAG exchange only)
+config.okta.agent.clientId
+config.okta.agent.keyId
+config.okta.agent.privateKeyJwk  // Server-side only
+
+// ORG auth server (OIDC + ID-JAG exchange)
+config.okta.orgAuthServer.authorizeEndpoint
+config.okta.orgAuthServer.tokenEndpoint
+
+// CUSTOM auth server (access token exchange)
 config.okta.customAuthServer.tokenEndpoint
 
-// Access MCP settings
+// MCP server
 config.mcp.baseUrl
 config.mcp.endpoints.tools
 ```
 
-All configuration is loaded from environment variables prefixed with `NEXT_PUBLIC_`.
+All configuration is loaded from environment variables. Public settings use `NEXT_PUBLIC_` prefix, server-side settings (like private keys and secrets) do not.
 
 ## Current Status
 

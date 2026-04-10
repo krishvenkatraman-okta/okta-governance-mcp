@@ -3,18 +3,22 @@
  *
  * Initiates Okta OIDC + PKCE authentication flow
  *
+ * OAUTH CLIENT: USER OAuth Client
+ * AUTHORIZATION SERVER: ORG auth server (/oauth2/v1/authorize)
+ *
  * Flow (to be implemented):
  * 1. Generate PKCE code verifier and challenge
  * 2. Store code verifier in secure session
  * 3. Build authorization URL with:
- *    - client_id
+ *    - client_id (USER OAuth client ID)
  *    - redirect_uri
  *    - response_type=code
- *    - scope=openid profile email mcp.governance
+ *    - scope=openid profile email
  *    - state (CSRF token)
  *    - code_challenge
  *    - code_challenge_method=S256
- * 4. Redirect user to Okta authorize endpoint
+ * 4. Redirect user to ORG authorize endpoint:
+ *    https://{domain}/oauth2/v1/authorize
  */
 
 import { NextResponse } from 'next/server';
@@ -27,14 +31,16 @@ export async function GET() {
     // 2. Generate code_challenge (SHA256 hash of verifier)
     // 3. Store code_verifier in session/cookie
     // 4. Build authorization URL
-    // 5. Redirect to Okta
+    // 5. Redirect to Okta ORG auth server
 
     // Placeholder response
     return NextResponse.json({
       message: 'Authentication start endpoint - not yet implemented',
-      next_step: 'Will redirect to Okta authorize endpoint',
+      next_step: 'Will redirect to Okta ORG authorize endpoint',
+      authorization_server: 'ORG (/oauth2/v1/...)',
       expected_params: {
-        client_id: config.okta.clientId,
+        authorize_endpoint: config.okta.orgAuthServer.authorizeEndpoint,
+        client_id: config.okta.userOAuthClient.clientId,
         redirect_uri: config.oauth.redirectUri,
         response_type: 'code',
         scope: config.oauth.scopes.join(' '),
