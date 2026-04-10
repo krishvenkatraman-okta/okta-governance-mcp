@@ -14,7 +14,10 @@
     "parse-postman": "tsx scripts/parse-postman.ts",
     "generate-keypair": "tsx scripts/generate-keypair.ts",
     "validate-tools": "tsx scripts/validate-tool-requirements.ts",
+    "validate-okta-oauth": "tsx scripts/validate-okta-oauth.ts",
     "show-examples": "tsx scripts/show-tool-examples.ts",
+    "demo-execution": "tsx scripts/demo-execution-layer.ts",
+    "demo-auth": "tsx scripts/demo-auth-flow.ts",
     "typecheck": "tsc --noEmit"
   },
   "keywords": [

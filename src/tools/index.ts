@@ -12,10 +12,28 @@ import { getOperationRequirementsTool } from './meta/get-operation-requirements.
 import { explainUnavailableTool } from './meta/explain-unavailable.js';
 import { listAvailableToolsTool } from './meta/list-available-tools.js';
 
+// Implemented governance tools
+import { listOwnedAppsTool } from './governance/list-owned-apps.js';
+import { generateSyslogReportTool } from './governance/generate-syslog-report.js';
+import { generateReviewCandidatesTool } from './governance/generate-review-candidates.js';
+
+// Stubbed governance tools (authorization checks only)
+import {
+  manageOwnedAppEntitlementsTool,
+  manageOwnedAppLabelsTool,
+  createBundleForOwnedAppTool,
+  createCampaignForOwnedAppTool,
+  requestAccessForOtherUserTool,
+  createAccessRequestWorkflowTool,
+} from './governance/stubs.js';
+
 /**
  * All available tools
  *
- * Additional governance and admin tools will be added here as they are implemented
+ * Tools are divided into:
+ * - Metadata tools (always available, no special permissions)
+ * - Implemented tools (fully functional)
+ * - Stubbed tools (authorization checks only, execution pending)
  */
 export const allTools: ToolDefinition[] = [
   // Metadata/explainability tools (always available)
@@ -24,20 +42,18 @@ export const allTools: ToolDefinition[] = [
   explainUnavailableTool,
   listAvailableToolsTool,
 
-  // Governance tools will be added here:
-  // - Campaign management
-  // - Collection/bundle management
-  // - Label management
-  // - Entitlement management
-  // - Access request workflows
+  // Implemented governance tools
+  listOwnedAppsTool,
+  generateSyslogReportTool,
+  generateReviewCandidatesTool,
 
-  // Admin tools will be added here:
-  // - App management (scoped)
-  // - Group management (scoped)
-  // - Role management
-
-  // Reporting tools will be added here:
-  // - System log reports (scoped)
+  // Stubbed governance tools (authorization enforced, execution pending)
+  manageOwnedAppEntitlementsTool,
+  manageOwnedAppLabelsTool,
+  createBundleForOwnedAppTool,
+  createCampaignForOwnedAppTool,
+  requestAccessForOtherUserTool,
+  createAccessRequestWorkflowTool,
 ];
 
 /**

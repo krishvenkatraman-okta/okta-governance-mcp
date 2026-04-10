@@ -1,7 +1,15 @@
 /**
  * MRS MCP server implementation
  *
- * Implements the Model Context Protocol for governance tools
+ * Implements the Model Context Protocol for governance tools with
+ * request authentication and authorization context resolution.
+ *
+ * Authentication Flow:
+ * 1. Extract MCP access token from request metadata
+ * 2. Validate token (signature, issuer, audience, expiry)
+ * 3. Extract subject from validated token
+ * 4. Resolve authorization context (roles, targets, capabilities)
+ * 5. Filter/execute tools based on authorization context
  */
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
@@ -14,12 +22,100 @@ import { config } from '../config/index.js';
 import { getAvailableTools } from './tool-registry.js';
 import { executeTool } from './tool-executor.js';
 import { loadEndpointRegistry } from '../catalog/endpoint-registry.js';
+import { validateMcpToken } from '../auth/mcp-token-validator.js';
+import { resolveAuthorizationContextForSubject } from '../policy/authorization-context.js';
 import type { AuthorizationContext } from '../types/index.js';
 
 /**
- * MCP server instance
+ * Extract MCP access token from request metadata
+ *
+ * The MCP SDK may pass authentication via:
+ * - Request metadata (meta.auth or meta.token)
+ * - Environment variables (for stdio transport)
+ * - Custom headers (for HTTP transport)
+ *
+ * For now, we support environment variable for testing.
  */
-let authContext: AuthorizationContext | null = null;
+function extractMcpToken(request: any): string | null {
+  // Try to extract from request metadata
+  if (request.meta?.auth?.token) {
+    return request.meta.auth.token;
+  }
+
+  if (request.meta?.token) {
+    return request.meta.token;
+  }
+
+  // Try environment variable (for testing)
+  if (process.env.MCP_ACCESS_TOKEN) {
+    return process.env.MCP_ACCESS_TOKEN;
+  }
+
+  return null;
+}
+
+/**
+ * Authenticate and resolve authorization context
+ *
+ * Validates the MCP token and resolves the user's authorization context.
+ * Fails closed - returns null if authentication fails.
+ *
+ * @param request - MCP request object
+ * @returns Authorization context or null if auth fails
+ */
+async function authenticateRequest(request: any): Promise<AuthorizationContext | null> {
+  // Step 1: Extract MCP token
+  const token = extractMcpToken(request);
+
+  if (!token) {
+    console.warn('[MRS] No MCP access token provided in request');
+    return null;
+  }
+
+  // Step 2: Validate token
+  const validation = validateMcpToken(token);
+
+  if (!validation.valid) {
+    console.error('[MRS] MCP token validation failed:', {
+      error: validation.error,
+      validationErrors: validation.validationErrors,
+    });
+    return null;
+  }
+
+  if (!validation.payload) {
+    console.error('[MRS] MCP token validation succeeded but no payload');
+    return null;
+  }
+
+  const { sub: subject } = validation.payload;
+
+  console.log('[MRS] MCP token validated:', {
+    subject,
+    issuer: validation.claims?.issuer,
+    expiresAt: validation.claims?.expiresAt,
+    sessionId: validation.claims?.sessionId,
+  });
+
+  // Step 3: Resolve authorization context
+  try {
+    const context = await resolveAuthorizationContextForSubject(subject, validation.payload);
+
+    console.log('[MRS] Authorization context resolved:', {
+      subject,
+      roles: Object.entries(context.roles)
+        .filter(([_, value]) => value)
+        .map(([key]) => key),
+      capabilities: context.capabilities.length,
+      targetApps: context.targets.apps.length,
+    });
+
+    return context;
+  } catch (error) {
+    console.error('[MRS] Failed to resolve authorization context:', error);
+    return null;
+  }
+}
 
 /**
  * Create and start MRS server
@@ -51,27 +147,24 @@ export async function startMrsServer() {
   /**
    * List tools handler
    *
-   * Returns tools filtered by user authorization context
+   * Authenticates the request and returns tools filtered by authorization context.
+   * Fails closed - returns empty list if authentication fails.
    */
-  server.setRequestHandler(ListToolsRequestSchema, async () => {
-    // In a real implementation, we would extract the MCP token from the request
-    // For now, we use a placeholder context
-    const context = authContext || {
-      subject: 'unknown',
-      roles: {
-        superAdmin: false,
-        orgAdmin: false,
-        appAdmin: false,
-        groupAdmin: false,
-        readOnlyAdmin: false,
-        regularUser: true,
-      },
-      targets: { apps: [], groups: [] },
-      reviewer: { hasAssignedReviews: false, hasSecurityAccessReviews: false },
-      capabilities: [],
-    };
+  server.setRequestHandler(ListToolsRequestSchema, async (request) => {
+    console.log('[MRS] Received ListTools request');
 
+    // Authenticate and resolve authorization context
+    const context = await authenticateRequest(request);
+
+    if (!context) {
+      console.warn('[MRS] ListTools: Authentication failed, returning empty tool list');
+      return { tools: [] };
+    }
+
+    // Get tools filtered by authorization context
     const tools = getAvailableTools(context);
+
+    console.log('[MRS] ListTools: Returning', tools.length, 'tools for subject', context.subject);
 
     return { tools };
   });
@@ -79,26 +172,29 @@ export async function startMrsServer() {
   /**
    * Call tool handler
    *
-   * Executes tool with re-authorization
+   * Authenticates the request and executes the tool with authorization context.
+   * Fails closed - returns error if authentication fails.
    */
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
-    // In a real implementation, we would extract and validate the MCP token
-    // For now, we use a placeholder context
-    const context = authContext || {
-      subject: 'unknown',
-      roles: {
-        superAdmin: false,
-        orgAdmin: false,
-        appAdmin: false,
-        groupAdmin: false,
-        readOnlyAdmin: false,
-        regularUser: true,
-      },
-      targets: { apps: [], groups: [] },
-      reviewer: { hasAssignedReviews: false, hasSecurityAccessReviews: false },
-      capabilities: [],
-    };
+    console.log('[MRS] Received CallTool request:', request.params.name);
 
+    // Authenticate and resolve authorization context
+    const context = await authenticateRequest(request);
+
+    if (!context) {
+      console.error('[MRS] CallTool: Authentication failed');
+      return {
+        content: [
+          {
+            type: 'text',
+            text: 'Authentication failed. Please provide a valid MCP access token.',
+          },
+        ],
+        isError: true,
+      };
+    }
+
+    // Execute tool with authorization context
     const result = await executeTool(
       {
         name: request.params.name,
@@ -106,6 +202,11 @@ export async function startMrsServer() {
       },
       context
     );
+
+    console.log('[MRS] CallTool:', request.params.name, 'completed:', {
+      subject: context.subject,
+      isError: result.isError,
+    });
 
     // Return in the expected format for CallToolResult
     return {
@@ -120,14 +221,18 @@ export async function startMrsServer() {
 
   console.log('\n🔧 MCP Resource Server (MRS) running');
   console.log(`📍 Server: ${config.mrs.serverName} v${config.mrs.serverVersion}`);
-  console.log('✅ Ready to accept tool calls via MCP protocol\n');
+  console.log('🔐 Authentication: MCP access token (from MAS)');
+  console.log('✅ Ready to accept authenticated tool calls via MCP protocol\n');
 
   return server;
 }
 
 /**
  * Set authorization context (for testing)
+ *
+ * @deprecated For testing only. Real authentication uses MCP tokens.
  */
-export function setAuthorizationContext(context: AuthorizationContext) {
-  authContext = context;
+export function setAuthorizationContext(_context: AuthorizationContext) {
+  console.warn('[MRS] setAuthorizationContext is deprecated and only for testing');
+  // No-op in production - authentication must use MCP tokens
 }

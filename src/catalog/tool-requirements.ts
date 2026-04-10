@@ -389,6 +389,31 @@ const requirements: Record<string, ToolRequirement> = {
       'https://developer.okta.com/docs/api/openapi/okta-management/management/tag/SystemLog/',
     ],
   },
+
+  /**
+   * ==========================================
+   * GOVERNANCE & RISK TOOLS
+   * ==========================================
+   */
+
+  generate_access_review_candidates: {
+    toolName: 'generate_access_review_candidates',
+    description:
+      'Generate a list of users who should be reviewed for access removal based on inactivity and risk analysis',
+    mappedEndpoints: ['Get System Log', 'Get Application'],
+    endpointCategories: ['System Log', 'Apps', 'Campaigns'],
+    requiredScopes: ['okta.logs.read', 'okta.apps.read'],
+    requiredCapabilities: ['campaigns.manage.owned', 'reports.syslog.owned'],
+    requiredRoles: ['APP_ADMIN', 'SUPER_ADMIN'],
+    targetConstraints: ['must_be_owned_app'],
+    requiresTargetResource: true,
+    notes:
+      'Uses System Log API to detect inactive users. Analyzes access patterns and assigns risk levels (HIGH/MEDIUM/LOW). Does not trigger actual certification campaigns.',
+    documentationRefs: [
+      'https://developer.okta.com/docs/api/openapi/okta-management/management/tag/SystemLog/',
+      'https://developer.okta.com/docs/api/openapi/okta-governance/governance/tag/Campaigns/',
+    ],
+  },
 };
 
 /**

@@ -6,8 +6,8 @@
 
 import { getAllTools } from '../tools/index.js';
 import { canAccessTool } from '../policy/policy-engine.js';
+import { getToolRequirement } from '../catalog/tool-requirements.js';
 import type { AuthorizationContext, McpTool, Capability } from '../types/index.js';
-import type { ToolDefinition } from '../tools/types.js';
 
 /**
  * Get tools available to a user
@@ -20,7 +20,7 @@ export function getAvailableTools(context: AuthorizationContext): McpTool[] {
 
   for (const tool of allTools) {
     // Get tool requirement from catalog
-    const requirement = getToolRequirementForTool(tool);
+    const requirement = getToolRequirement(tool.definition.name);
 
     if (!requirement) {
       // If no requirement found, tool is metadata/explainability - always available
@@ -38,22 +38,12 @@ export function getAvailableTools(context: AuthorizationContext): McpTool[] {
 }
 
 /**
- * Get tool requirement from tool definition
- */
-function getToolRequirementForTool(tool: ToolDefinition) {
-  // Import dynamically to avoid circular dependency
-  const { getToolRequirement } = require('../catalog/tool-requirements.js');
-  return getToolRequirement(tool.definition.name);
-}
-
-/**
  * Check if user can access a specific tool
  */
 export function canUserAccessTool(
   toolName: string,
   context: AuthorizationContext
 ): { allowed: boolean; reason?: string } {
-  const { getToolRequirement } = require('../catalog/tool-requirements.js');
   const requirement = getToolRequirement(toolName);
 
   if (!requirement) {

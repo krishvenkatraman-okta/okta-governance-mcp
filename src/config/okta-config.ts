@@ -1,14 +1,31 @@
 /**
  * Okta-specific configuration
+ *
+ * Configures:
+ * - Service app OAuth client (client credentials + private_key_jwt)
+ * - Okta API endpoints
+ * - ID-JAG validation for inbound user tokens
  */
 
+/**
+ * Default OAuth scopes for service app
+ *
+ * These are used when no specific scopes are requested.
+ * Should be kept to minimum required for basic operations.
+ */
+const DEFAULT_SCOPES = [
+  'okta.apps.read',
+  'okta.users.read',
+  'okta.groups.read',
+].join(' ');
+
 export function oktaConfig() {
+  // Required configuration
   const domain = process.env.OKTA_DOMAIN;
-  const issuer = process.env.OKTA_ISSUER;
   const clientId = process.env.OKTA_CLIENT_ID;
   const privateKeyPath = process.env.OKTA_PRIVATE_KEY_PATH;
-  const tokenUrl = process.env.OKTA_TOKEN_URL;
 
+  // Validation
   if (!domain) {
     throw new Error('OKTA_DOMAIN environment variable is required');
   }
@@ -17,21 +34,46 @@ export function oktaConfig() {
     throw new Error('OKTA_CLIENT_ID environment variable is required');
   }
 
+  if (!privateKeyPath) {
+    throw new Error('OKTA_PRIVATE_KEY_PATH environment variable is required');
+  }
+
+  // Parse domain to extract org URL
+  // Supports: dev-123456.okta.com, company.oktapreview.com, company.okta.com
+  const orgUrl = domain.startsWith('https://') ? domain : `https://${domain}`;
+
+  // Service app OAuth configuration
+  // IMPORTANT: Must use org authorization server (/oauth2/v1/token)
+  // NOT custom authorization server (/oauth2/aus.../v1/token)
+  const tokenUrl = process.env.OKTA_TOKEN_URL || `${orgUrl}/oauth2/v1/token`;
+
+  // Default scopes (can be overridden per request)
+  const defaultScopes = process.env.OKTA_SCOPES_DEFAULT || DEFAULT_SCOPES;
+
+  // Private key kid (optional, but recommended for key rotation)
+  const privateKeyKid = process.env.OKTA_PRIVATE_KEY_KID;
+
   return {
+    // Core OAuth configuration
     domain,
-    issuer: issuer || `https://${domain}/oauth2/default`,
+    orgUrl,
     clientId,
-    privateKeyPath: privateKeyPath || './keys/okta-private-key.pem',
-    tokenUrl: tokenUrl || `https://${domain}/oauth2/v1/token`,
-    baseUrl: `https://${domain}`,
+    privateKeyPath,
+    privateKeyKid,
+    tokenUrl,
+    defaultScopes,
+
     // Okta API endpoints
-    apiV1: `https://${domain}/api/v1`,
-    governanceApi: `https://${domain}/governance/api/v1`,
-    // ID-JAG validation
+    baseUrl: orgUrl,
+    apiV1: `${orgUrl}/api/v1`,
+    governanceApi: `${orgUrl}/governance/api/v1`,
+
+    // ID-JAG validation (for inbound user tokens from MAS)
     idJag: {
-      issuer: process.env.ID_JAG_ISSUER || `https://${domain}/oauth2/default`,
+      // ID-JAG can use custom authorization server
+      issuer: process.env.ID_JAG_ISSUER || `${orgUrl}/oauth2/default`,
       audience: process.env.ID_JAG_AUDIENCE || 'api://mcp-governance',
-      jwksUri: process.env.ID_JAG_JWKS_URI || `https://${domain}/oauth2/default/v1/keys`,
+      jwksUri: process.env.ID_JAG_JWKS_URI || `${orgUrl}/oauth2/default/v1/keys`,
     },
   };
 }
