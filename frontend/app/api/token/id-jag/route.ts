@@ -6,6 +6,23 @@
  * OAUTH CLIENT: AGENT OAuth Client (NOT the USER client)
  * AUTHORIZATION SERVER: ORG auth server (/oauth2/v1/token)
  *
+ * SCOPES: THIS IS WHERE GOVERNANCE SCOPES ARE REQUESTED
+ * - NOT requested during login
+ * - Requested here during ID-JAG exchange
+ * - Scopes define what the AI agent can do on behalf of the user
+ * - Governance scopes:
+ *   - okta.accessRequests.catalog.read
+ *   - okta.accessRequests.request.read
+ *   - okta.governance.accessCertifications.manage
+ *   - okta.governance.accessCertifications.read
+ *   - okta.governance.delegates.manage
+ *   - okta.governance.delegates.read
+ *   - okta.governance.principalSettings.manage
+ *   - okta.governance.principalSettings.read
+ *   - okta.governance.securityAccessReviews.endUser.manage
+ *   - okta.governance.securityAccessReviews.endUser.read
+ *   - okta.users.read.self
+ *
  * CLIENT AUTHENTICATION: private_key_jwt (signed client assertion)
  * - NO client secret required
  * - Must build signed JWT using AGENT private key
@@ -33,9 +50,10 @@
  *    - subject_token_type=urn:ietf:params:oauth:token-type:id_token
  *    - requested_token_type=urn:okta:oauth:token-type:id_jag
  *    - audience=api://mcp-governance
+ *    - scope=<governance_scopes> (okta.governance.* okta.accessRequests.* okta.users.read.self)
  *    - client_assertion_type=urn:ietf:params:oauth:client-assertion-type:jwt-bearer
  *    - client_assertion=<signed_jwt> (signed with AGENT key)
- * 4. Receive ID-JAG in response
+ * 4. Receive ID-JAG in response (contains governance scopes)
  * 5. Store ID-JAG in session
  * 6. Return success response
  *

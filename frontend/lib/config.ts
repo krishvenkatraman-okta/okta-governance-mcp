@@ -89,7 +89,8 @@ export interface FrontendConfig {
 
   oauth: {
     redirectUri: string;
-    scopes: string[];  // Scopes for OIDC flow
+    scopes: string[];  // OIDC scopes ONLY (openid, profile, email) - NOT governance scopes
+                       // Governance scopes are requested during ID-JAG exchange, not login
   };
 }
 
@@ -172,7 +173,8 @@ export function loadConfig(): FrontendConfig {
 
     oauth: {
       redirectUri,
-      scopes: ['openid', 'profile', 'email'],  // OIDC scopes for org auth server
+      scopes: ['openid', 'profile', 'email'],  // OIDC scopes ONLY (for user login)
+                                                // Governance scopes are requested during ID-JAG exchange
     },
   };
 }

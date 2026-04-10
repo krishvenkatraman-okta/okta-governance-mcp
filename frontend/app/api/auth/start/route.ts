@@ -6,6 +6,10 @@
  * OAUTH CLIENT: USER OAuth Client
  * AUTHORIZATION SERVER: ORG auth server (/oauth2/v1/authorize)
  *
+ * SCOPES: OIDC scopes ONLY (openid, profile, email)
+ * - Governance scopes are NOT requested here
+ * - Governance scopes are requested during ID-JAG exchange (/api/token/id-jag)
+ *
  * Flow (to be implemented):
  * 1. Generate PKCE code verifier and challenge
  * 2. Store code verifier in secure session
@@ -13,7 +17,7 @@
  *    - client_id (USER OAuth client ID)
  *    - redirect_uri
  *    - response_type=code
- *    - scope=openid profile email
+ *    - scope=openid profile email (OIDC scopes only - no governance scopes)
  *    - state (CSRF token)
  *    - code_challenge
  *    - code_challenge_method=S256
