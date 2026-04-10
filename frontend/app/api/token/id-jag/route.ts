@@ -36,7 +36,7 @@
  * - kid: Agent key ID (config.okta.agent.keyId)
  *
  * Flow:
- * 1. Retrieve ID token from request body (session management not yet implemented)
+ * 1. Retrieve ID token from session (server-side only)
  * 2. Build signed client assertion JWT using lib/agent-client-assertion.ts:
  *    - buildAgentClientAssertion({ audience: orgAuthServer.tokenEndpoint })
  *    - Returns signed JWT with:
@@ -52,7 +52,7 @@
  *    - client_assertion_type=urn:ietf:params:oauth:client-assertion-type:jwt-bearer
  *    - client_assertion=<signed_jwt> (signed with AGENT key)
  * 4. Receive ID-JAG in response (contains ONLY mcpResource scope)
- * 5. TODO: Store ID-JAG in session
+ * 5. Store ID-JAG in session
  * 6. Return success response with metadata
  *
  * Note: This uses the AGENT client to exchange the user's ID token for an ID-JAG.
@@ -63,6 +63,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { config } from '@/lib/config';
 import { oktaScopes } from '@/lib/okta-scopes';
 import { buildAgentClientAssertion } from '@/lib/agent-client-assertion';
+import { getSession } from '@/lib/session';
 import { decodeJwt } from 'jose';
 
 interface TokenExchangeResponse {
@@ -80,22 +81,37 @@ interface OktaErrorResponse {
 
 export async function POST(request: NextRequest) {
   try {
-    // 1. Get ID token from request body
-    // TODO: Replace with session retrieval once session management is implemented
-    const body = await request.json();
-    const idToken = body.id_token;
+    console.log('[ID-JAG Exchange] Starting token exchange with AGENT client authentication');
 
-    if (!idToken) {
+    // 1. Get ID token from session (server-side only)
+    const session = await getSession();
+
+    if (!session.idToken) {
+      console.error('[ID-JAG Exchange] No ID token found in session');
       return NextResponse.json(
         {
-          error: 'Missing ID token',
-          message: 'id_token is required in request body',
+          error: 'Not authenticated',
+          message: 'No ID token found in session. Please log in first.',
         },
-        { status: 400 }
+        { status: 401 }
       );
     }
 
-    console.log('[ID-JAG Exchange] Starting token exchange for agent client');
+    if (!session.userId) {
+      console.error('[ID-JAG Exchange] No user ID found in session');
+      return NextResponse.json(
+        {
+          error: 'Invalid session',
+          message: 'User ID not found in session.',
+        },
+        { status: 401 }
+      );
+    }
+
+    const idToken = session.idToken;
+    const userId = session.userId;
+
+    console.log('[ID-JAG Exchange] Retrieved ID token from session for user:', userId);
 
     // 2. Build signed client assertion
     const clientAssertion = await buildAgentClientAssertion({
@@ -163,7 +179,17 @@ export async function POST(request: NextRequest) {
     const idJagToken = tokenResponse.access_token;
     const decoded = decodeJwt(idJagToken);
 
-    // 6. TODO: Store ID-JAG in session (not yet implemented)
+    // 6. Store ID-JAG in session
+    session.idJag = idJagToken;
+
+    // Store expiration time if available
+    if (decoded.exp) {
+      session.idJagExpiresAt = decoded.exp as number;
+    }
+
+    await session.save();
+
+    console.log('[ID-JAG Exchange] ID-JAG stored in session');
 
     // 7. Return success with metadata (NOT full token)
     const claims: Record<string, unknown> = {
@@ -189,7 +215,7 @@ export async function POST(request: NextRequest) {
         scope: tokenResponse.scope,
         claims,
       },
-      next_step: 'Store ID-JAG in session and use for access token exchange',
+      next_step: 'Use ID-JAG for MCP access token exchange',
     });
   } catch (error) {
     console.error('[ID-JAG Exchange] Error:', error);

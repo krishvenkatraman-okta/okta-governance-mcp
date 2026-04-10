@@ -28,7 +28,7 @@
  * used separately for end-user Okta Governance API calls.
  *
  * Flow:
- * 1. Retrieve ID-JAG from request body (session management not yet implemented)
+ * 1. Retrieve ID-JAG from session (server-side only)
  * 2. Build signed client assertion JWT using AGENT private key
  * 3. POST to CUSTOM auth server token endpoint: https://{domain}/oauth2/{serverId}/v1/token
  *    - grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer
@@ -36,7 +36,7 @@
  *    - client_assertion_type=urn:ietf:params:oauth:client-assertion-type:jwt-bearer
  *    - client_assertion=<signed_jwt>
  * 4. Receive MCP access token in response (inherits mcpResource scope from ID-JAG)
- * 5. TODO: Store MCP access token in session
+ * 5. Store MCP access token in session
  * 6. Return success response with metadata
  *
  * Note: Uses AGENT client authentication for consistency and security (private_key_jwt).
@@ -46,6 +46,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { config } from '@/lib/config';
 import { buildAgentClientAssertion } from '@/lib/agent-client-assertion';
+import { getSession } from '@/lib/session';
 import { decodeJwt } from 'jose';
 
 interface AccessTokenResponse {
@@ -62,22 +63,37 @@ interface OktaErrorResponse {
 
 export async function POST(request: NextRequest) {
   try {
-    // 1. Get ID-JAG from request body
-    // TODO: Replace with session retrieval once session management is implemented
-    const body = await request.json();
-    const idJag = body.id_jag;
+    console.log('[Access Token Exchange] Starting JWT bearer exchange with AGENT client authentication');
 
-    if (!idJag) {
+    // 1. Get ID-JAG from session (server-side only)
+    const session = await getSession();
+
+    if (!session.idJag) {
+      console.error('[Access Token Exchange] No ID-JAG found in session');
       return NextResponse.json(
         {
-          error: 'Missing ID-JAG',
-          message: 'id_jag is required in request body',
+          error: 'ID-JAG not available',
+          message: 'No ID-JAG found in session. Please exchange ID token for ID-JAG first.',
         },
-        { status: 400 }
+        { status: 401 }
       );
     }
 
-    console.log('[Access Token Exchange] Starting JWT bearer exchange with AGENT client authentication');
+    if (!session.userId) {
+      console.error('[Access Token Exchange] No user ID found in session');
+      return NextResponse.json(
+        {
+          error: 'Invalid session',
+          message: 'User ID not found in session.',
+        },
+        { status: 401 }
+      );
+    }
+
+    const idJag = session.idJag;
+    const userId = session.userId;
+
+    console.log('[Access Token Exchange] Retrieved ID-JAG from session for user:', userId);
 
     // 2. Build signed client assertion for AGENT client
     const clientAssertion = await buildAgentClientAssertion({
@@ -140,9 +156,32 @@ export async function POST(request: NextRequest) {
     const mcpAccessToken = tokenResponse.access_token;
     const decoded = decodeJwt(mcpAccessToken);
 
-    // 6. TODO: Store MCP access token in session (not yet implemented)
+    // 6. Validate scope includes governance:mcp
+    const scope = tokenResponse.scope || '';
+    if (!scope.includes('governance:mcp')) {
+      console.error('[Access Token Exchange] MCP scope not found in access token');
+      return NextResponse.json(
+        {
+          error: 'Invalid token scope',
+          message: 'MCP access token does not contain required governance:mcp scope',
+        },
+        { status: 500 }
+      );
+    }
 
-    // 7. Return success with metadata (NOT full token)
+    // 7. Store MCP access token in session
+    session.mcpAccessToken = mcpAccessToken;
+
+    // Store expiration time if available
+    if (decoded.exp) {
+      session.mcpAccessTokenExpiresAt = decoded.exp as number;
+    }
+
+    await session.save();
+
+    console.log('[Access Token Exchange] MCP access token stored in session');
+
+    // 8. Return success with metadata (NOT full token)
     const claims: Record<string, unknown> = {
       iss: decoded.iss,
       sub: decoded.sub,
@@ -165,7 +204,7 @@ export async function POST(request: NextRequest) {
         scope: tokenResponse.scope,
         claims,
       },
-      next_step: 'Store MCP access token in session and use to call MCP server',
+      next_step: 'Use MCP access token to call MCP server',
     });
   } catch (error) {
     console.error('[Access Token Exchange] Error:', error);
