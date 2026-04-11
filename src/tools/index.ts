@@ -13,18 +13,18 @@ import { explainUnavailableTool } from './meta/explain-unavailable.js';
 import { listAvailableToolsTool } from './meta/list-available-tools.js';
 
 // Implemented governance tools
-import { listOwnedAppsTool } from './governance/list-owned-apps.js';
-import { generateSyslogReportTool } from './governance/generate-syslog-report.js';
+import { listManageableAppsTool } from './governance/list-manageable-apps.js';
+import { generateAppActivityReportTool } from './governance/generate-app-activity-report.js';
 import { generateReviewCandidatesTool } from './governance/generate-review-candidates.js';
 
 // Stubbed governance tools (authorization checks only)
 import {
-  manageOwnedAppEntitlementsTool,
-  manageOwnedAppLabelsTool,
-  createBundleForOwnedAppTool,
-  createCampaignForOwnedAppTool,
-  requestAccessForOtherUserTool,
-  createAccessRequestWorkflowTool,
+  manageAppEntitlementsTool,
+  manageAppLabelsTool,
+  manageAppBundlesTool,
+  manageAppCampaignsTool,
+  createDelegatedAccessRequestTool,
+  manageAppWorkflowsTool,
 } from './governance/stubs.js';
 
 /**
@@ -43,17 +43,17 @@ export const allTools: ToolDefinition[] = [
   listAvailableToolsTool,
 
   // Implemented governance tools
-  listOwnedAppsTool,
-  generateSyslogReportTool,
+  listManageableAppsTool,
+  generateAppActivityReportTool,
   generateReviewCandidatesTool,
 
   // Stubbed governance tools (authorization enforced, execution pending)
-  manageOwnedAppEntitlementsTool,
-  manageOwnedAppLabelsTool,
-  createBundleForOwnedAppTool,
-  createCampaignForOwnedAppTool,
-  requestAccessForOtherUserTool,
-  createAccessRequestWorkflowTool,
+  manageAppEntitlementsTool,
+  manageAppLabelsTool,
+  manageAppBundlesTool,
+  manageAppCampaignsTool,
+  createDelegatedAccessRequestTool,
+  manageAppWorkflowsTool,
 ];
 
 /**

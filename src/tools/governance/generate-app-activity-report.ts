@@ -1,8 +1,8 @@
 /**
- * Tool: generate_owned_app_syslog_report
+ * Tool: generate_app_activity_report
  *
- * Generates a system log activity report for an owned application.
- * Returns event counts and recent activity for the specified app.
+ * Generates an activity and audit report from system logs for applications
+ * within authorization scope. Returns event counts and recent activity for the specified app.
  */
 
 import { systemLogClient } from '../../okta/systemlog-client.js';
@@ -14,7 +14,7 @@ import type { ToolDefinition } from '../types.js';
 /**
  * Tool arguments
  */
-interface GenerateSyslogReportArgs {
+interface GenerateAppActivityReportArgs {
   /**
    * Application ID
    */
@@ -38,9 +38,9 @@ async function handler(
   args: Record<string, unknown>,
   context: AuthorizationContext
 ): Promise<McpToolCallResponse> {
-  const { appId, days = 60, includeDetails = false } = args as Partial<GenerateSyslogReportArgs>;
+  const { appId, days = 60, includeDetails = false } = args as Partial<GenerateAppActivityReportArgs>;
 
-  console.log('[GenerateSyslogReport] Executing tool:', {
+  console.log('[GenerateAppActivityReport] Executing tool:', {
     subject: context.subject,
     appId,
     days,
@@ -55,7 +55,7 @@ async function handler(
   try {
     // Validate ownership: Check if app is in user's targets
     if (!context.roles.superAdmin && !context.targets.apps.includes(appId)) {
-      console.warn('[GenerateSyslogReport] Access denied - app not in targets:', {
+      console.warn('[GenerateAppActivityReport] Access denied - app not in targets:', {
         appId,
         userTargets: context.targets.apps,
       });
@@ -64,17 +64,17 @@ async function handler(
       );
     }
 
-    console.log('[GenerateSyslogReport] Fetching app details...');
+    console.log('[GenerateAppActivityReport] Fetching app details...');
 
     // Get app details
     const app = await appsClient.getById(appId);
 
-    console.log('[GenerateSyslogReport] Fetching system logs...');
+    console.log('[GenerateAppActivityReport] Fetching system logs...');
 
     // Query system logs for this app
     const events = await systemLogClient.queryRecentLogsForApp(appId, days);
 
-    console.log(`[GenerateSyslogReport] Retrieved ${events.length} log events`);
+    console.log(`[GenerateAppActivityReport] Retrieved ${events.length} log events`);
 
     // Count events by type
     const eventCounts = await systemLogClient.countEventsByType(appId, days);
@@ -116,11 +116,11 @@ async function handler(
         : undefined,
     };
 
-    console.log('[GenerateSyslogReport] Report generated successfully');
+    console.log('[GenerateAppActivityReport] Report generated successfully');
 
     return createJsonResponse(report);
   } catch (error) {
-    console.error('[GenerateSyslogReport] Error:', error);
+    console.error('[GenerateAppActivityReport] Error:', error);
     return createErrorResponse(
       `Failed to generate syslog report: ${error instanceof Error ? error.message : 'Unknown error'}`
     );
@@ -130,11 +130,11 @@ async function handler(
 /**
  * Tool definition
  */
-export const generateSyslogReportTool: ToolDefinition = {
+export const generateAppActivityReportTool: ToolDefinition = {
   definition: {
-    name: 'generate_owned_app_syslog_report',
+    name: 'generate_app_activity_report',
     description:
-      'Generate a system log activity report for an owned application (last 60 days by default)',
+      'Generate activity and audit reports from system logs for applications within your authorization scope (last 60 days by default)',
     inputSchema: {
       type: 'object',
       properties: {

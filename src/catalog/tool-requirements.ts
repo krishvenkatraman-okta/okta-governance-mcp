@@ -73,13 +73,13 @@ const requirements: Record<string, ToolRequirement> = {
 
   /**
    * ==========================================
-   * APP ADMIN TOOLS
+   * GOVERNANCE TOOLS
    * ==========================================
    */
 
-  list_owned_apps: {
-    toolName: 'list_owned_apps',
-    description: 'List applications manageable in the current authorization context (all apps for SUPER_ADMIN, owned apps for APP_ADMIN)',
+  list_manageable_apps: {
+    toolName: 'list_manageable_apps',
+    description: 'List applications manageable in your current authorization scope (all apps for organization-wide access, owned apps for scoped access)',
     mappedEndpoints: ['List all apps', 'Get Application'], // Will map to Apps API
     endpointCategories: ['Apps'],
     requiredScopes: ['okta.apps.read'],
@@ -103,9 +103,9 @@ const requirements: Record<string, ToolRequirement> = {
    * ==========================================
    */
 
-  manage_owned_app_entitlements: {
-    toolName: 'manage_owned_app_entitlements',
-    description: 'Manage entitlements for applications in the current authorization context',
+  manage_app_entitlements: {
+    toolName: 'manage_app_entitlements',
+    description: 'Manage entitlements for applications within your authorization scope (requires app context)',
     mappedEndpoints: [
       'List all entitlements',
       'Create an entitlement',
@@ -143,9 +143,9 @@ const requirements: Record<string, ToolRequirement> = {
    * ==========================================
    */
 
-  manage_owned_app_labels: {
-    toolName: 'manage_owned_app_labels',
-    description: 'Manage labels for applications in the current authorization context',
+  manage_app_labels: {
+    toolName: 'manage_app_labels',
+    description: 'Manage labels for applications within your authorization scope (requires app context)',
     mappedEndpoints: [
       'List all labels',
       'Create a label',
@@ -194,9 +194,9 @@ const requirements: Record<string, ToolRequirement> = {
    * ==========================================
    */
 
-  create_bundle_for_owned_app: {
-    toolName: 'create_bundle_for_owned_app',
-    description: 'Create an entitlement bundle for applications in the current authorization context',
+  manage_app_bundles: {
+    toolName: 'manage_app_bundles',
+    description: 'Create and manage entitlement bundles (collections) for applications within your authorization scope',
     mappedEndpoints: [
       'Create a resource collection',
       'List all resource collections',
@@ -237,9 +237,9 @@ const requirements: Record<string, ToolRequirement> = {
    * ==========================================
    */
 
-  create_campaign_for_owned_app: {
-    toolName: 'create_campaign_for_owned_app',
-    description: 'Create an access certification campaign for applications in the current authorization context',
+  manage_app_campaigns: {
+    toolName: 'manage_app_campaigns',
+    description: 'Create and manage access certification campaigns for applications within your authorization scope',
     mappedEndpoints: [
       'Create a campaign',
       'List all campaigns',
@@ -286,9 +286,9 @@ const requirements: Record<string, ToolRequirement> = {
    * ==========================================
    */
 
-  request_access_for_other_user_on_owned_app: {
-    toolName: 'request_access_for_other_user_on_owned_app',
-    description: 'Request access on behalf of another user for applications in the current authorization context',
+  create_delegated_access_request: {
+    toolName: 'create_delegated_access_request',
+    description: 'Request access on behalf of another user for applications within your authorization scope',
     mappedEndpoints: [
       'Create a request',
       'List all requests',
@@ -333,9 +333,9 @@ const requirements: Record<string, ToolRequirement> = {
    * ==========================================
    */
 
-  create_access_request_workflow_for_owned_app: {
-    toolName: 'create_access_request_workflow_for_owned_app',
-    description: 'Create or update access request workflows for applications in the current authorization context',
+  manage_app_workflows: {
+    toolName: 'manage_app_workflows',
+    description: 'Manage access request workflows and approval conditions for applications within your authorization scope',
     mappedEndpoints: [
       'List all resource request conditions',
       'Create a request condition',
@@ -379,9 +379,9 @@ const requirements: Record<string, ToolRequirement> = {
    * ==========================================
    */
 
-  generate_owned_app_syslog_report: {
-    toolName: 'generate_owned_app_syslog_report',
-    description: 'Generate system log reports for applications in the current authorization context',
+  generate_app_activity_report: {
+    toolName: 'generate_app_activity_report',
+    description: 'Generate activity and audit reports from system logs for applications within your authorization scope',
     mappedEndpoints: ['Get System Log'], // System Log API, not in Governance collection
     endpointCategories: ['System Log'],
     requiredScopes: ['okta.logs.read', 'okta.apps.read'],
@@ -405,7 +405,7 @@ const requirements: Record<string, ToolRequirement> = {
   generate_access_review_candidates: {
     toolName: 'generate_access_review_candidates',
     description:
-      'Generate a list of users who should be reviewed for access removal based on inactivity and risk analysis for applications in the current authorization context',
+      'Generate risk-ranked candidates for access review based on activity analysis within your authorization scope',
     mappedEndpoints: ['Get System Log', 'Get Application'],
     endpointCategories: ['System Log', 'Apps', 'Campaigns'],
     requiredScopes: ['okta.logs.read', 'okta.apps.read'],

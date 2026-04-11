@@ -29,12 +29,12 @@ function createStubHandler(toolName: string) {
 }
 
 /**
- * Stub: manage_owned_app_entitlements
+ * Stub: manage_app_entitlements
  */
-export const manageOwnedAppEntitlementsTool: ToolDefinition = {
+export const manageAppEntitlementsTool: ToolDefinition = {
   definition: {
-    name: 'manage_owned_app_entitlements',
-    description: 'Manage entitlements for an owned application (not yet implemented)',
+    name: 'manage_app_entitlements',
+    description: 'Manage entitlements for applications within your authorization scope (not yet implemented)',
     inputSchema: {
       type: 'object',
       properties: {
@@ -51,16 +51,16 @@ export const manageOwnedAppEntitlementsTool: ToolDefinition = {
       required: ['appId', 'action'],
     },
   },
-  handler: createStubHandler('manage_owned_app_entitlements'),
+  handler: createStubHandler('manage_app_entitlements'),
 };
 
 /**
- * Stub: manage_owned_app_labels
+ * Stub: manage_app_labels
  */
-export const manageOwnedAppLabelsTool: ToolDefinition = {
+export const manageAppLabelsTool: ToolDefinition = {
   definition: {
-    name: 'manage_owned_app_labels',
-    description: 'Manage labels for an owned application (not yet implemented)',
+    name: 'manage_app_labels',
+    description: 'Manage labels for applications within your authorization scope (not yet implemented)',
     inputSchema: {
       type: 'object',
       properties: {
@@ -77,16 +77,16 @@ export const manageOwnedAppLabelsTool: ToolDefinition = {
       required: ['appId', 'action'],
     },
   },
-  handler: createStubHandler('manage_owned_app_labels'),
+  handler: createStubHandler('manage_app_labels'),
 };
 
 /**
- * Stub: create_bundle_for_owned_app
+ * Stub: manage_app_bundles
  */
-export const createBundleForOwnedAppTool: ToolDefinition = {
+export const manageAppBundlesTool: ToolDefinition = {
   definition: {
-    name: 'create_bundle_for_owned_app',
-    description: 'Create an entitlement bundle for an owned application (not yet implemented)',
+    name: 'manage_app_bundles',
+    description: 'Create and manage entitlement bundles (collections) for applications within your authorization scope (not yet implemented)',
     inputSchema: {
       type: 'object',
       properties: {
@@ -107,16 +107,16 @@ export const createBundleForOwnedAppTool: ToolDefinition = {
       required: ['appId', 'name', 'entitlementIds'],
     },
   },
-  handler: createStubHandler('create_bundle_for_owned_app'),
+  handler: createStubHandler('manage_app_bundles'),
 };
 
 /**
- * Stub: create_campaign_for_owned_app
+ * Stub: manage_app_campaigns
  */
-export const createCampaignForOwnedAppTool: ToolDefinition = {
+export const manageAppCampaignsTool: ToolDefinition = {
   definition: {
-    name: 'create_campaign_for_owned_app',
-    description: 'Create an access certification campaign for an owned application (not yet implemented)',
+    name: 'manage_app_campaigns',
+    description: 'Create and manage access certification campaigns for applications within your authorization scope (not yet implemented)',
     inputSchema: {
       type: 'object',
       properties: {
@@ -137,16 +137,16 @@ export const createCampaignForOwnedAppTool: ToolDefinition = {
       required: ['appId', 'action'],
     },
   },
-  handler: createStubHandler('create_campaign_for_owned_app'),
+  handler: createStubHandler('manage_app_campaigns'),
 };
 
 /**
- * Stub: request_access_for_other_user_on_owned_app
+ * Stub: create_delegated_access_request
  */
-export const requestAccessForOtherUserTool: ToolDefinition = {
+export const createDelegatedAccessRequestTool: ToolDefinition = {
   definition: {
-    name: 'request_access_for_other_user_on_owned_app',
-    description: 'Request access for another user on an owned application (not yet implemented)',
+    name: 'create_delegated_access_request',
+    description: 'Request access on behalf of another user for applications within your authorization scope (not yet implemented)',
     inputSchema: {
       type: 'object',
       properties: {
@@ -166,16 +166,16 @@ export const requestAccessForOtherUserTool: ToolDefinition = {
       required: ['appId', 'userId', 'entitlementId'],
     },
   },
-  handler: createStubHandler('request_access_for_other_user_on_owned_app'),
+  handler: createStubHandler('create_delegated_access_request'),
 };
 
 /**
- * Stub: create_access_request_workflow_for_owned_app
+ * Stub: manage_app_workflows
  */
-export const createAccessRequestWorkflowTool: ToolDefinition = {
+export const manageAppWorkflowsTool: ToolDefinition = {
   definition: {
-    name: 'create_access_request_workflow_for_owned_app',
-    description: 'Create or modify access request workflow for an owned application (not yet implemented)',
+    name: 'manage_app_workflows',
+    description: 'Manage access request workflows and approval conditions for applications within your authorization scope (not yet implemented)',
     inputSchema: {
       type: 'object',
       properties: {
@@ -192,5 +192,5 @@ export const createAccessRequestWorkflowTool: ToolDefinition = {
       required: ['appId', 'action'],
     },
   },
-  handler: createStubHandler('create_access_request_workflow_for_owned_app'),
+  handler: createStubHandler('manage_app_workflows'),
 };
