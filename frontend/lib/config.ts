@@ -65,7 +65,8 @@ export interface FrontendConfig {
     customAuthServer: {
       serverId: string;
       issuer: string;
-      tokenEndpoint: string;  // For ID-JAG → access token exchange
+      audience: string;        // Audience for ID-JAG exchange (base URL without /v1/token)
+      tokenEndpoint: string;   // For ID-JAG → access token exchange
       jwksUri: string;
     };
 
@@ -161,6 +162,7 @@ export function loadConfig(): FrontendConfig {
       customAuthServer: {
         serverId: customAuthServerId,
         issuer: `${orgUrl}/oauth2/${customAuthServerId}`,
+        audience: `${orgUrl}/oauth2/${customAuthServerId}`,  // Base URL for audience claim
         tokenEndpoint: `${orgUrl}/oauth2/${customAuthServerId}/v1/token`,
         jwksUri: `${orgUrl}/oauth2/${customAuthServerId}/v1/keys`,
       },
