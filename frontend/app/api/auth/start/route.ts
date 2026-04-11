@@ -20,20 +20,43 @@ export async function GET() {
   try {
     console.log('[Auth Start] Initiating OIDC + PKCE flow');
 
-    // 1. Generate PKCE parameters
+    // 1. Get session and clear all old auth/token data
+    // This ensures a clean slate for new login attempts
+    const session = await getSession();
+
+    // Clear all tokens
+    session.idToken = undefined;
+    session.idJag = undefined;
+    session.mcpAccessToken = undefined;
+
+    // Clear all token expiry timestamps
+    session.idTokenExpiresAt = undefined;
+    session.idJagExpiresAt = undefined;
+    session.mcpAccessTokenExpiresAt = undefined;
+
+    // Clear user info
+    session.userId = undefined;
+    session.userEmail = undefined;
+
+    // Clear any old PKCE state
+    session.codeVerifier = undefined;
+    session.state = undefined;
+
+    console.log('[Auth Start] Old session data cleared');
+
+    // 2. Generate fresh PKCE parameters
     const codeVerifier = generateCodeVerifier();
     const codeChallenge = await generateCodeChallenge(codeVerifier);
     const state = generateState();
 
-    // 2. Store PKCE parameters in session
-    const session = await getSession();
+    // 3. Store fresh PKCE parameters in clean session
     session.codeVerifier = codeVerifier;
     session.state = state;
     await session.save();
 
-    console.log('[Auth Start] PKCE parameters stored in session');
+    console.log('[Auth Start] Fresh PKCE parameters stored in clean session');
 
-    // 3. Build authorization URL
+    // 4. Build authorization URL
     const authParams = new URLSearchParams({
       client_id: config.okta.userOAuthClient.clientId,
       redirect_uri: config.oauth.redirectUri,
@@ -51,7 +74,7 @@ export async function GET() {
 
     console.log('[Auth Start] Redirecting to Okta');
 
-    // 4. Redirect to Okta
+    // 5. Redirect to Okta
     return NextResponse.redirect(authorizeUrl);
   } catch (error) {
     console.error('[Auth Start] Error:', error);

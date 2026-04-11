@@ -82,6 +82,11 @@ export default function AgentPage() {
     window.location.href = '/api/auth/start';
   };
 
+  const handleLogout = () => {
+    // Redirect to logout endpoint
+    window.location.href = '/api/auth/logout';
+  };
+
   const handleGetIdJag = async () => {
     setLoading({ ...loading, idJag: true });
     setError(null);
@@ -302,6 +307,16 @@ export default function AgentPage() {
               label="Login with Okta"
               description="Authenticate via Okta OIDC"
               variant="primary"
+            />
+
+            {/* Logout Button */}
+            <ActionButton
+              onClick={handleLogout}
+              disabled={!isAuthenticated}
+              loading={false}
+              label="Logout"
+              description="Clear session and logout"
+              variant="secondary"
             />
 
             {/* Get ID-JAG Button */}
