@@ -246,9 +246,30 @@ You can call tools to answer user questions about their governance scope and app
     };
 
     // 4. Call LiteLLM (using OpenAI-compatible API)
-    // Note: LiteLLM endpoint would be configured via environment variable
-    const litellmEndpoint = process.env.LITELLM_API_BASE || 'http://localhost:4000';
-    const litellmModel = process.env.LITELLM_MODEL || 'gpt-4o-mini';
+    const litellmEndpoint = process.env.LITELLM_API_BASE;
+    const litellmModel = process.env.LITELLM_MODEL;
+    const litellmApiKey = process.env.LITELLM_API_KEY;
+
+    if (!litellmEndpoint || !litellmModel) {
+      console.error('[Chat] LiteLLM not configured:', {
+        hasEndpoint: !!litellmEndpoint,
+        hasModel: !!litellmModel,
+        hasApiKey: !!litellmApiKey,
+      });
+      return NextResponse.json(
+        {
+          error: 'LiteLLM not configured',
+          message: 'LITELLM_API_BASE and LITELLM_MODEL environment variables are required',
+        },
+        { status: 500 }
+      );
+    }
+
+    console.log('[Chat] LiteLLM configuration:', {
+      endpoint: litellmEndpoint,
+      model: litellmModel,
+      hasApiKey: !!litellmApiKey,
+    });
 
     let allMessages = [systemMessage, ...messages];
     let toolCalls: ToolCall[] = [];
@@ -259,30 +280,53 @@ You can call tools to answer user questions about their governance scope and app
     while (iterations < maxIterations) {
       iterations++;
 
-      const llmResponse = await fetch(`${litellmEndpoint}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: litellmModel,
-          messages: allMessages,
-          tools: TOOL_DEFINITIONS,
-          tool_choice: 'auto',
-          temperature: 0.7,
-          max_tokens: 2000,
-        }),
-      });
+      console.log('[Chat] Calling LiteLLM (iteration', iterations, ')');
+
+      let llmResponse;
+      try {
+        llmResponse = await fetch(`${litellmEndpoint}/v1/chat/completions`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(litellmApiKey && { Authorization: `Bearer ${litellmApiKey}` }),
+          },
+          body: JSON.stringify({
+            model: litellmModel,
+            messages: allMessages,
+            tools: TOOL_DEFINITIONS,
+            tool_choice: 'auto',
+            temperature: 0.2,
+            max_tokens: 2000,
+          }),
+        });
+      } catch (fetchError) {
+        console.error('[Chat] LiteLLM connection failed:', {
+          error: fetchError instanceof Error ? fetchError.message : 'Unknown error',
+          endpoint: `${litellmEndpoint}/v1/chat/completions`,
+        });
+        return NextResponse.json(
+          {
+            error: 'LiteLLM connection failed',
+            message: 'Unable to reach LLM endpoint. Please check LITELLM_API_BASE configuration.',
+          },
+          { status: 503 }
+        );
+      }
 
       if (!llmResponse.ok) {
         const errorText = await llmResponse.text();
-        console.error('[Chat] LiteLLM error:', errorText);
+        console.error('[Chat] LiteLLM error:', {
+          status: llmResponse.status,
+          statusText: llmResponse.statusText,
+          error: errorText.substring(0, 200),
+        });
         return NextResponse.json(
           {
             error: 'LLM request failed',
             message: 'Failed to get response from language model',
+            status: llmResponse.status,
           },
-          { status: 500 }
+          { status: llmResponse.status }
         );
       }
 
@@ -350,7 +394,10 @@ You can call tools to answer user questions about their governance scope and app
       }
 
       // No more tool calls - return final response
-      console.log('[Chat] Returning final response');
+      console.log('[Chat] Returning final response:', {
+        hasContent: !!assistantMessage.content,
+        iterations,
+      });
 
       return NextResponse.json({
         message: assistantMessage.content,
@@ -359,6 +406,7 @@ You can call tools to answer user questions about their governance scope and app
     }
 
     // Max iterations reached
+    console.error('[Chat] Max iterations reached:', maxIterations);
     return NextResponse.json(
       {
         error: 'Max iterations reached',
