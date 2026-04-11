@@ -12,6 +12,7 @@
 import { useState, useEffect } from 'react';
 import AgentHeader from '@/components/AgentHeader';
 import DebugTokenPanel from '@/components/DebugTokenPanel';
+import ChatInterface from '@/components/ChatInterface';
 import { uiConfig } from '@/lib/ui-config';
 
 interface TokenState {
@@ -54,6 +55,7 @@ export default function AgentPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [showDebugPanel, setShowDebugPanel] = useState(false);
+  const [showChat, setShowChat] = useState(false);
   const [toolResult, setToolResult] = useState<{
     toolName: string;
     content: string;
@@ -542,8 +544,25 @@ export default function AgentPage() {
               description="Fetch available governance tools"
               variant="accent"
             />
+
+            {/* Open Chat Assistant Button */}
+            <ActionButton
+              onClick={() => setShowChat(!showChat)}
+              disabled={!tokenState.hasMcpAccessToken}
+              loading={false}
+              label={showChat ? 'Close Chat Assistant' : 'Open Chat Assistant'}
+              description="Chat with AI governance assistant"
+              variant="primary"
+            />
           </div>
         </div>
+
+        {/* Chat Interface */}
+        {showChat && (
+          <div className="mb-6">
+            <ChatInterface onClose={() => setShowChat(false)} />
+          </div>
+        )}
 
         {/* Tools Display */}
         {tools.length > 0 && (
