@@ -45,15 +45,16 @@
  *    - Returns signed JWT with:
  *      - Header: { alg: "RS256", kid: "{agent_key_id}" }
  *      - Claims: { iss, sub, aud, iat, exp, jti }
- * 3. POST to ORG token endpoint: https://{domain}/oauth2/v1/token
+ * 3. POST to ORG token endpoint (config.okta.orgAuthServer.tokenEndpoint)
+ *    Request body parameters (matching working Postman contract):
  *    - grant_type=urn:ietf:params:oauth:grant-type:token-exchange
- *    - subject_token=<id_token> (identity from USER client)
- *    - subject_token_type=urn:ietf:params:oauth:token-type:id_token
  *    - requested_token_type=urn:ietf:params:oauth:token-type:id-jag
- *    - audience=<custom_auth_server_issuer>
- *    - scope=oktaScopes.mcpResource.join(' ') (governance:mcp - EXPLICITLY requested)
+ *    - subject_token=<id_token> (from session)
+ *    - subject_token_type=urn:ietf:params:oauth:token-type:id_token
  *    - client_assertion_type=urn:ietf:params:oauth:client-assertion-type:jwt-bearer
- *    - client_assertion=<signed_jwt> (signed with AGENT key)
+ *    - client_assertion=<signed_jwt> (iss/sub=agent principal, aud=ORG token endpoint)
+ *    - audience=<custom_auth_server_audience> (config.okta.customAuthServer.audience)
+ *    - scope=governance:mcp (oktaScopes.mcpResource from lib/okta-scopes.ts)
  * 4. Receive ID-JAG in response (contains ONLY mcpResource scope)
  * 5. Store ID-JAG in session
  * 6. Return success response with metadata
@@ -131,10 +132,12 @@ export async function POST(request: NextRequest) {
       requested_token_type: 'urn:ietf:params:oauth:token-type:id-jag',
       subject_token: idToken,
       subject_token_type: 'urn:ietf:params:oauth:token-type:id_token',
-      audience: config.okta.customAuthServer.issuer, // Custom auth server issuer
-      scope: oktaScopes.mcpResource.join(' '), // governance:mcp
       client_assertion_type: 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer',
       client_assertion: clientAssertion,
+      audience: config.okta.customAuthServer.audience, // Custom auth server base URL
+      // MCP resource scope - ONLY scope requested for ID-JAG
+      // ID token carries identity only, this scope is explicitly added here
+      scope: oktaScopes.mcpResource.join(' '), // governance:mcp
     });
 
     console.log('[ID-JAG Exchange] Calling Okta token endpoint:', tokenEndpoint);

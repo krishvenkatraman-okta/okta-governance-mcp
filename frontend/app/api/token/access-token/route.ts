@@ -41,12 +41,14 @@
  * Flow:
  * 1. Retrieve ID-JAG from session (server-side only)
  * 2. Build signed client assertion JWT using AGENT private key
- * 3. POST to CUSTOM auth server token endpoint: https://{domain}/oauth2/{serverId}/v1/token
+ *    - buildAgentClientAssertion({ audience: customAuthServer.tokenEndpoint })
+ * 3. POST to CUSTOM auth server token endpoint (config.okta.customAuthServer.tokenEndpoint)
+ *    Request body parameters (matching working Postman contract):
  *    - grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer
- *    - assertion=<id_jag>
+ *    - assertion=<id_jag> (from session)
  *    - client_assertion_type=urn:ietf:params:oauth:client-assertion-type:jwt-bearer
- *    - client_assertion=<signed_jwt> (iss/sub=principalId, aud=custom token endpoint)
- * 4. Receive MCP access token in response (inherits mcpResource scope from ID-JAG)
+ *    - client_assertion=<signed_jwt> (iss/sub=agent principal, aud=CUSTOM token endpoint)
+ * 4. Receive MCP access token in response (inherits governance:mcp scope from ID-JAG)
  * 5. Store MCP access token in session
  * 6. Return success response with metadata
  *
@@ -118,9 +120,10 @@ export async function POST(request: NextRequest) {
     const tokenEndpoint = config.okta.customAuthServer.tokenEndpoint;
     const requestBody = new URLSearchParams({
       grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
-      assertion: idJag,
+      assertion: idJag, // ID-JAG contains governance:mcp scope
       client_assertion_type: 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer',
       client_assertion: clientAssertion,
+      // NOTE: No scope parameter sent - MCP access token inherits scope from ID-JAG assertion
     });
 
     console.log('[Access Token Exchange] Calling CUSTOM auth server:', tokenEndpoint);

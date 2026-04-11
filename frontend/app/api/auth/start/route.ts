@@ -38,6 +38,9 @@ export async function GET() {
       client_id: config.okta.userOAuthClient.clientId,
       redirect_uri: config.oauth.redirectUri,
       response_type: 'code',
+      // User login scopes: identity (openid, profile, email) + end-user API access
+      // Note: MCP resource scope (governance:mcp) is NOT requested here
+      // It will be requested later during ID-JAG exchange
       scope: [...oktaScopes.login, ...oktaScopes.endUserApi].join(' '),
       state: state,
       code_challenge: codeChallenge,
