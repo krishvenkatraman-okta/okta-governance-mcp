@@ -54,6 +54,11 @@ export default function AgentPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [showDebugPanel, setShowDebugPanel] = useState(false);
+  const [toolResult, setToolResult] = useState<{
+    toolName: string;
+    content: string;
+    isError: boolean;
+  } | null>(null);
 
   // Check token state on mount
   useEffect(() => {
@@ -192,6 +197,63 @@ export default function AgentPage() {
       setError(err instanceof Error ? err.message : 'Unknown error');
     } finally {
       setLoading({ ...loading, tools: false });
+    }
+  };
+
+  const handleExecuteTool = async (toolName: string, toolArgs: Record<string, unknown> = {}) => {
+    setLoading({ ...loading, [toolName]: true });
+    setError(null);
+    setSuccess(null);
+    setToolResult(null);
+
+    try {
+      console.log('[Agent Page] Executing tool:', { toolName, args: toolArgs });
+
+      const response = await fetch('/api/mcp/call', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          toolName,
+          arguments: toolArgs,
+        }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.message || 'Failed to execute tool');
+      }
+
+      const data = await response.json();
+
+      console.log('[Agent Page] Tool execution result:', {
+        success: data.success,
+        isError: data.result?.isError,
+        contentCount: data.result?.content?.length,
+      });
+
+      if (data.result) {
+        // Extract text content from result
+        const textContent = data.result.content
+          .filter((c: any) => c.type === 'text')
+          .map((c: any) => c.text)
+          .join('\n');
+
+        setToolResult({
+          toolName,
+          content: textContent,
+          isError: data.result.isError || false,
+        });
+
+        if (!data.result.isError) {
+          setSuccess(`Tool '${toolName}' executed successfully`);
+        } else {
+          setError(`Tool '${toolName}' returned an error`);
+        }
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unknown error');
+    } finally {
+      setLoading({ ...loading, [toolName]: false });
     }
   };
 
@@ -502,17 +564,74 @@ export default function AgentPage() {
                   className="border rounded-lg p-4"
                   style={{ borderColor: uiConfig.colors.gray200 }}
                 >
-                  <h3
-                    className="font-semibold mb-1"
-                    style={{ color: uiConfig.colors.gray900 }}
-                  >
-                    {tool.name}
-                  </h3>
-                  <p className="text-sm" style={{ color: uiConfig.colors.gray600 }}>
-                    {tool.description}
-                  </p>
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <h3
+                        className="font-semibold mb-1"
+                        style={{ color: uiConfig.colors.gray900 }}
+                      >
+                        {tool.name}
+                      </h3>
+                      <p className="text-sm" style={{ color: uiConfig.colors.gray600 }}>
+                        {tool.description}
+                      </p>
+                    </div>
+                    {/* Show Run button for list_manageable_apps */}
+                    {tool.name === 'list_manageable_apps' && (
+                      <button
+                        onClick={() => handleExecuteTool(tool.name)}
+                        disabled={loading[tool.name]}
+                        className="ml-4 px-4 py-2 rounded-lg text-sm font-semibold transition-colors"
+                        style={{
+                          backgroundColor: loading[tool.name]
+                            ? uiConfig.colors.gray300
+                            : uiConfig.colors.primary,
+                          color: 'white',
+                          cursor: loading[tool.name] ? 'not-allowed' : 'pointer',
+                        }}
+                      >
+                        {loading[tool.name] ? 'Running...' : 'Run'}
+                      </button>
+                    )}
+                  </div>
                 </div>
               ))}
+            </div>
+          </div>
+        )}
+
+        {/* Tool Execution Result */}
+        {toolResult && (
+          <div className="bg-white rounded-lg shadow-md p-6 mb-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2
+                className="text-xl font-semibold"
+                style={{ color: uiConfig.colors.gray900 }}
+              >
+                Tool Result: {toolResult.toolName}
+              </h2>
+              <button
+                onClick={() => setToolResult(null)}
+                className="text-sm px-3 py-1 rounded"
+                style={{
+                  backgroundColor: uiConfig.colors.gray200,
+                  color: uiConfig.colors.gray900,
+                }}
+              >
+                Clear
+              </button>
+            </div>
+            <div
+              className="rounded-lg p-4 font-mono text-sm overflow-auto max-h-96"
+              style={{
+                backgroundColor: toolResult.isError ? '#fef2f2' : '#f0fdf4',
+                border: `1px solid ${toolResult.isError ? '#fecaca' : '#bbf7d0'}`,
+                color: toolResult.isError ? uiConfig.colors.error : '#166534',
+              }}
+            >
+              <pre className="whitespace-pre-wrap break-words">
+                {toolResult.content}
+              </pre>
             </div>
           </div>
         )}
