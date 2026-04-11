@@ -15,6 +15,7 @@ import DebugTokenPanel from '@/components/DebugTokenPanel';
 import { uiConfig } from '@/lib/ui-config';
 
 interface TokenState {
+  authenticated: boolean;
   hasIdToken: boolean;
   hasIdJag: boolean;
   hasMcpAccessToken: boolean;
@@ -42,6 +43,7 @@ interface AuthorizationMetadata {
 
 export default function AgentPage() {
   const [tokenState, setTokenState] = useState<TokenState>({
+    authenticated: false,
     hasIdToken: false,
     hasIdJag: false,
     hasMcpAccessToken: false,
@@ -69,6 +71,7 @@ export default function AgentPage() {
       const data = await response.json();
 
       setTokenState({
+        authenticated: data.authenticated,
         hasIdToken: data.hasIdToken,
         hasIdJag: data.hasIdJag,
         hasMcpAccessToken: data.hasMcpAccessToken,
@@ -79,6 +82,7 @@ export default function AgentPage() {
       console.error('Failed to check token state:', err);
       // Set to unauthenticated state on error
       setTokenState({
+        authenticated: false,
         hasIdToken: false,
         hasIdJag: false,
         hasMcpAccessToken: false,
@@ -191,7 +195,9 @@ export default function AgentPage() {
     }
   };
 
-  const isAuthenticated = tokenState.hasIdToken;
+  // User is authenticated if they have a valid session with userId
+  // (not based on individual tokens, which may be removed after progressive cleanup)
+  const isAuthenticated = tokenState.authenticated;
 
   return (
     <div className="min-h-screen" style={{ background: uiConfig.colors.gray50 }}>
@@ -298,14 +304,33 @@ export default function AgentPage() {
           </h2>
           <div className="space-y-3">
             <TokenStatusRow
-              label="ID Token"
+              label="ID Token (removed after ID-JAG)"
               hasToken={tokenState.hasIdToken}
             />
-            <TokenStatusRow label="ID-JAG" hasToken={tokenState.hasIdJag} />
             <TokenStatusRow
-              label="MCP Access Token"
+              label="ID-JAG (removed after MCP token)"
+              hasToken={tokenState.hasIdJag}
+            />
+            <TokenStatusRow
+              label="MCP Access Token (final)"
               hasToken={tokenState.hasMcpAccessToken}
             />
+          </div>
+
+          {/* Progressive Cleanup Note */}
+          <div
+            className="mt-4 pt-4 border-t text-xs"
+            style={{
+              borderColor: uiConfig.colors.gray200,
+              color: uiConfig.colors.gray600,
+            }}
+          >
+            <p className="leading-relaxed">
+              <strong>Note:</strong> Tokens are progressively removed after each exchange
+              to keep the session cookie size small. ID Token is removed after ID-JAG exchange,
+              and ID-JAG is removed after MCP access token exchange. Missing earlier tokens
+              is expected behavior.
+            </p>
           </div>
         </div>
 
@@ -500,6 +525,12 @@ export default function AgentPage() {
           >
             {showDebugPanel ? 'Hide Debug Panel' : 'Show Debug Panel (Local Only)'}
           </button>
+          <p
+            className="text-xs mt-2"
+            style={{ color: uiConfig.colors.gray600 }}
+          >
+            Earlier tokens may be removed after exchange to keep the session cookie small.
+          </p>
         </div>
 
         {/* Debug Token Panel */}

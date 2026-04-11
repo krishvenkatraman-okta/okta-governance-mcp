@@ -26,8 +26,11 @@ export async function GET() {
   try {
     const session = await getSession();
 
-    // Check if user is authenticated (has ID token and user ID)
-    const authenticated = !!(session.idToken && session.userId);
+    // Check if user is authenticated
+    // User is authenticated if they have a userId (persisted identity field)
+    // Note: Individual tokens (idToken, idJag) may be removed after progressive cleanup
+    // to reduce cookie size, but userId persists throughout the session
+    const authenticated = !!session.userId;
 
     // Build safe response with metadata only
     const response = {
