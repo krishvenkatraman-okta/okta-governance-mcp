@@ -165,9 +165,49 @@ export async function startMrsServer() {
     // Get tools filtered by authorization context
     const tools = getAvailableTools(context);
 
-    console.log('[MRS] ListTools: Returning', tools.length, 'tools for subject', context.subject);
+    // Determine resolved role (highest privilege wins)
+    let resolvedRole = 'REGULAR_USER';
+    if (context.roles.superAdmin) {
+      resolvedRole = 'SUPER_ADMIN';
+    } else if (context.roles.orgAdmin) {
+      resolvedRole = 'ORG_ADMIN';
+    } else if (context.roles.appAdmin) {
+      resolvedRole = 'APP_ADMIN';
+    } else if (context.roles.groupAdmin) {
+      resolvedRole = 'GROUP_ADMIN';
+    } else if (context.roles.readOnlyAdmin) {
+      resolvedRole = 'READ_ONLY_ADMIN';
+    }
 
-    return { tools };
+    // Determine scope summary
+    let scopeSummary = 'No access';
+    if (context.roles.superAdmin || context.roles.orgAdmin) {
+      scopeSummary = 'Organization-wide';
+    } else if (context.roles.appAdmin || context.roles.groupAdmin) {
+      const targetCount = context.targets.apps.length + context.targets.groups.length;
+      if (targetCount > 0) {
+        scopeSummary = `${targetCount} owned resource(s)`;
+      } else {
+        scopeSummary = 'Limited access';
+      }
+    } else if (context.roles.regularUser) {
+      scopeSummary = 'Self-service only';
+    }
+
+    const response = {
+      tools,
+      authorization: {
+        resolvedRole,
+        capabilitiesCount: context.capabilities.length,
+        targetAppsCount: context.targets.apps.length,
+        targetGroupsCount: context.targets.groups.length,
+        scopeSummary,
+      },
+    };
+
+    console.log('[MRS] ListTools: Returning', tools.length, 'tools for subject', context.subject, 'with role', resolvedRole);
+
+    return response;
   });
 
   /**

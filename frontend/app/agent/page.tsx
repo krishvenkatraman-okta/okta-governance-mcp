@@ -172,6 +172,15 @@ export default function AgentPage() {
       }
 
       const data = await response.json();
+
+      // Debug: Log what we received from API route (safe - no tokens)
+      console.log('[Agent Page] Received from API:', JSON.stringify({
+        success: data.success,
+        count: data.count,
+        hasAuthorization: !!data.authorization,
+        authorization: data.authorization,
+      }, null, 2));
+
       setTools(data.tools || []);
       setAuthorization(data.authorization || null);
       setSuccess(`Successfully loaded ${data.count} MCP tools`);

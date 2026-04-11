@@ -154,7 +154,7 @@ app.post('/mcp/v1/tools/list', async (req, res) => {
       scopeSummary = 'Self-service only';
     }
 
-    res.json({
+    const response = {
       tools: tools,
       authorization: {
         resolvedRole,
@@ -163,7 +163,15 @@ app.post('/mcp/v1/tools/list', async (req, res) => {
         targetGroupsCount: context.targets.groups.length,
         scopeSummary,
       },
-    });
+    };
+
+    // Debug: Log the full response structure (safe - no tokens)
+    console.log('[MRS-HTTP] Sending tools response:', JSON.stringify({
+      toolsCount: response.tools.length,
+      authorization: response.authorization,
+    }, null, 2));
+
+    res.json(response);
   } catch (error) {
     console.error('[MRS-HTTP] Error listing tools:', error);
     res.status(500).json({

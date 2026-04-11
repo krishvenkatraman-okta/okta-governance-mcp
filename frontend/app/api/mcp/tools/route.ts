@@ -125,18 +125,30 @@ export async function POST() {
     // Parse success response
     const data: McpToolsResponse = await response.json();
 
-    console.log('[MCP Tools] Successfully fetched tools', {
-      count: data.tools?.length || 0,
-      resolvedRole: data.authorization?.resolvedRole,
-    });
+    // Debug: Log what we received from MCP server (safe - no tokens)
+    console.log('[MCP Tools] Received from MCP server:', JSON.stringify({
+      toolsCount: data.tools?.length || 0,
+      hasAuthorization: !!data.authorization,
+      authorization: data.authorization,
+    }, null, 2));
 
-    // 3. Return tools and authorization metadata to client (no token exposure)
-    return NextResponse.json({
+    // Debug: Log what we're sending to client (safe - no tokens)
+    const clientResponse = {
       success: true,
       tools: data.tools || [],
       count: data.tools?.length || 0,
       authorization: data.authorization || null,
-    });
+    };
+
+    console.log('[MCP Tools] Sending to client:', JSON.stringify({
+      success: clientResponse.success,
+      count: clientResponse.count,
+      hasAuthorization: !!clientResponse.authorization,
+      authorization: clientResponse.authorization,
+    }, null, 2));
+
+    // 3. Return tools and authorization metadata to client (no token exposure)
+    return NextResponse.json(clientResponse);
   } catch (error) {
     console.error('[MCP Tools] Error:', error);
 
