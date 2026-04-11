@@ -79,15 +79,21 @@ const requirements: Record<string, ToolRequirement> = {
 
   list_owned_apps: {
     toolName: 'list_owned_apps',
-    description: 'List applications owned/administered by the current user',
+    description: 'List applications manageable in the current authorization context (all apps for SUPER_ADMIN, owned apps for APP_ADMIN)',
     mappedEndpoints: ['List all apps', 'Get Application'], // Will map to Apps API
     endpointCategories: ['Apps'],
     requiredScopes: ['okta.apps.read'],
-    requiredCapabilities: ['entitlements.manage.owned', 'labels.manage.owned'],
+    // Accept either .owned OR .all capabilities (SUPER_ADMIN has .all, APP_ADMIN has .owned)
+    requiredCapabilities: [
+      'entitlements.manage.owned',
+      'labels.manage.owned',
+      'entitlements.manage.all',
+      'labels.manage.all',
+    ],
     requiredRoles: ['APP_ADMIN', 'SUPER_ADMIN'],
     targetConstraints: ['no_constraint'],
     requiresTargetResource: false,
-    notes: 'Uses Apps API (not in Governance collection). Returns only apps user can administer.',
+    notes: 'Uses Apps API (not in Governance collection). Returns all apps for SUPER_ADMIN/ORG_ADMIN, only owned apps for APP_ADMIN.',
     documentationRefs: ['https://developer.okta.com/docs/api/openapi/okta-management/management/tag/Application/'],
   },
 
@@ -99,7 +105,7 @@ const requirements: Record<string, ToolRequirement> = {
 
   manage_owned_app_entitlements: {
     toolName: 'manage_owned_app_entitlements',
-    description: 'Manage entitlements for an owned application',
+    description: 'Manage entitlements for applications in the current authorization context',
     mappedEndpoints: [
       'List all entitlements',
       'Create an entitlement',
@@ -109,7 +115,7 @@ const requirements: Record<string, ToolRequirement> = {
     ],
     endpointCategories: ['Entitlements'],
     requiredScopes: ['okta.governance.entitlements.read', 'okta.governance.entitlements.manage'],
-    requiredCapabilities: ['entitlements.manage.owned'],
+    requiredCapabilities: ['entitlements.manage.owned', 'entitlements.manage.all'],
     requiredRoles: ['APP_ADMIN', 'SUPER_ADMIN'],
     targetConstraints: ['must_be_owned_app'],
     requiresTargetResource: true,
@@ -139,7 +145,7 @@ const requirements: Record<string, ToolRequirement> = {
 
   manage_owned_app_labels: {
     toolName: 'manage_owned_app_labels',
-    description: 'Manage labels for an owned application',
+    description: 'Manage labels for applications in the current authorization context',
     mappedEndpoints: [
       'List all labels',
       'Create a label',
@@ -151,7 +157,7 @@ const requirements: Record<string, ToolRequirement> = {
     ],
     endpointCategories: ['Labels'],
     requiredScopes: ['okta.governance.labels.read', 'okta.governance.labels.manage', 'okta.apps.read'],
-    requiredCapabilities: ['labels.manage.owned'],
+    requiredCapabilities: ['labels.manage.owned', 'labels.manage.all'],
     requiredRoles: ['APP_ADMIN', 'SUPER_ADMIN'],
     targetConstraints: ['must_be_owned_app'],
     requiresTargetResource: true,
@@ -190,7 +196,7 @@ const requirements: Record<string, ToolRequirement> = {
 
   create_bundle_for_owned_app: {
     toolName: 'create_bundle_for_owned_app',
-    description: 'Create an entitlement bundle for an owned application',
+    description: 'Create an entitlement bundle for applications in the current authorization context',
     mappedEndpoints: [
       'Create a resource collection',
       'List all resource collections',
@@ -204,7 +210,7 @@ const requirements: Record<string, ToolRequirement> = {
       'okta.governance.collections.manage',
       'okta.governance.entitlements.read',
     ],
-    requiredCapabilities: ['bundles.manage.owned'],
+    requiredCapabilities: ['bundles.manage.owned', 'bundles.manage.all'],
     requiredRoles: ['APP_ADMIN', 'SUPER_ADMIN'],
     targetConstraints: ['must_be_owned_app'],
     requiresTargetResource: true,
@@ -233,7 +239,7 @@ const requirements: Record<string, ToolRequirement> = {
 
   create_campaign_for_owned_app: {
     toolName: 'create_campaign_for_owned_app',
-    description: 'Create an access certification campaign for an owned application',
+    description: 'Create an access certification campaign for applications in the current authorization context',
     mappedEndpoints: [
       'Create a campaign',
       'List all campaigns',
@@ -248,7 +254,7 @@ const requirements: Record<string, ToolRequirement> = {
       'okta.governance.accessCertifications.manage',
       'okta.apps.read',
     ],
-    requiredCapabilities: ['campaigns.manage.owned'],
+    requiredCapabilities: ['campaigns.manage.owned', 'campaigns.manage.all'],
     requiredRoles: ['APP_ADMIN', 'SUPER_ADMIN'],
     targetConstraints: ['must_be_owned_app'],
     requiresTargetResource: true,
@@ -282,7 +288,7 @@ const requirements: Record<string, ToolRequirement> = {
 
   request_access_for_other_user_on_owned_app: {
     toolName: 'request_access_for_other_user_on_owned_app',
-    description: 'Request access on behalf of another user for an owned application',
+    description: 'Request access on behalf of another user for applications in the current authorization context',
     mappedEndpoints: [
       'Create a request',
       'List all requests',
@@ -295,7 +301,7 @@ const requirements: Record<string, ToolRequirement> = {
       'okta.accessRequests.request.manage',
       'okta.accessRequests.catalog.read',
     ],
-    requiredCapabilities: ['request_for_others.owned'],
+    requiredCapabilities: ['request_for_others.owned', 'request_for_others.all'],
     requiredRoles: ['APP_ADMIN', 'SUPER_ADMIN'],
     targetConstraints: ['must_be_owned_app'],
     requiresTargetResource: true,
@@ -329,7 +335,7 @@ const requirements: Record<string, ToolRequirement> = {
 
   create_access_request_workflow_for_owned_app: {
     toolName: 'create_access_request_workflow_for_owned_app',
-    description: 'Create or update access request workflows for an owned application',
+    description: 'Create or update access request workflows for applications in the current authorization context',
     mappedEndpoints: [
       'List all resource request conditions',
       'Create a request condition',
@@ -342,7 +348,7 @@ const requirements: Record<string, ToolRequirement> = {
       'okta.accessRequests.condition.read',
       'okta.accessRequests.condition.manage',
     ],
-    requiredCapabilities: ['workflow.manage.owned'],
+    requiredCapabilities: ['workflow.manage.owned', 'workflow.manage.all'],
     requiredRoles: ['APP_ADMIN', 'SUPER_ADMIN'],
     targetConstraints: ['must_be_owned_app'],
     requiresTargetResource: true,
@@ -375,16 +381,16 @@ const requirements: Record<string, ToolRequirement> = {
 
   generate_owned_app_syslog_report: {
     toolName: 'generate_owned_app_syslog_report',
-    description: 'Generate system log reports for owned applications',
+    description: 'Generate system log reports for applications in the current authorization context',
     mappedEndpoints: ['Get System Log'], // System Log API, not in Governance collection
     endpointCategories: ['System Log'],
     requiredScopes: ['okta.logs.read', 'okta.apps.read'],
-    requiredCapabilities: ['reports.syslog.owned'],
+    requiredCapabilities: ['reports.syslog.owned', 'reports.syslog.all'],
     requiredRoles: ['APP_ADMIN', 'SUPER_ADMIN'],
     targetConstraints: ['must_be_owned_app'],
     requiresTargetResource: true,
     notes:
-      'Uses System Log API (not in Governance collection). Filters logs by target app.',
+      'Uses System Log API (not in Governance collection). Filters logs by target app for APP_ADMIN, all apps for SUPER_ADMIN.',
     documentationRefs: [
       'https://developer.okta.com/docs/api/openapi/okta-management/management/tag/SystemLog/',
     ],
@@ -399,16 +405,21 @@ const requirements: Record<string, ToolRequirement> = {
   generate_access_review_candidates: {
     toolName: 'generate_access_review_candidates',
     description:
-      'Generate a list of users who should be reviewed for access removal based on inactivity and risk analysis',
+      'Generate a list of users who should be reviewed for access removal based on inactivity and risk analysis for applications in the current authorization context',
     mappedEndpoints: ['Get System Log', 'Get Application'],
     endpointCategories: ['System Log', 'Apps', 'Campaigns'],
     requiredScopes: ['okta.logs.read', 'okta.apps.read'],
-    requiredCapabilities: ['campaigns.manage.owned', 'reports.syslog.owned'],
+    requiredCapabilities: [
+      'campaigns.manage.owned',
+      'reports.syslog.owned',
+      'campaigns.manage.all',
+      'reports.syslog.all',
+    ],
     requiredRoles: ['APP_ADMIN', 'SUPER_ADMIN'],
     targetConstraints: ['must_be_owned_app'],
     requiresTargetResource: true,
     notes:
-      'Uses System Log API to detect inactive users. Analyzes access patterns and assigns risk levels (HIGH/MEDIUM/LOW). Does not trigger actual certification campaigns.',
+      'Uses System Log API to detect inactive users. Analyzes access patterns and assigns risk levels (HIGH/MEDIUM/LOW). Works with owned apps for APP_ADMIN, all apps for SUPER_ADMIN. Does not trigger actual certification campaigns.',
     documentationRefs: [
       'https://developer.okta.com/docs/api/openapi/okta-management/management/tag/SystemLog/',
       'https://developer.okta.com/docs/api/openapi/okta-governance/governance/tag/Campaigns/',

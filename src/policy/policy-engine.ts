@@ -79,10 +79,17 @@ export function evaluatePolicy(
 
 /**
  * Check if user can access a tool at all
+ *
+ * Note: Tools with empty requiredCapabilities are always accessible (metadata tools)
  */
 export function canAccessTool(
   context: AuthorizationContext,
   toolRequirement: ToolRequirement
 ): boolean {
+  // If no capabilities required, tool is always accessible (metadata tools)
+  if (toolRequirement.requiredCapabilities.length === 0) {
+    return true;
+  }
+
   return capabilityMapper.hasAnyCapability(context.capabilities, toolRequirement.requiredCapabilities);
 }
