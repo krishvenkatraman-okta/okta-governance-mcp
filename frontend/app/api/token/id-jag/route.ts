@@ -206,7 +206,8 @@ export async function POST(request: NextRequest) {
     const idJagToken = tokenResponse.access_token;
     const decoded = decodeJwt(idJagToken);
 
-    // 6. Store ID-JAG in session
+    // 6. Store ID-JAG in session and remove ID token (no longer needed)
+    // COOKIE SIZE OPTIMIZATION: ID token is only needed for this exchange
     session.idJag = idJagToken;
 
     // Store expiration time if available
@@ -214,9 +215,13 @@ export async function POST(request: NextRequest) {
       session.idJagExpiresAt = decoded.exp as number;
     }
 
+    // Remove ID token from session - no longer needed after ID-JAG exchange
+    session.idToken = undefined;
+    session.idTokenExpiresAt = undefined;
+
     await session.save();
 
-    console.log('[ID-JAG Exchange] ID-JAG stored in session');
+    console.log('[ID-JAG Exchange] ID-JAG stored, ID token removed from session');
 
     // 7. Return success with metadata (NOT full token)
     const claims: Record<string, unknown> = {

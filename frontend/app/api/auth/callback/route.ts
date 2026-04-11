@@ -190,8 +190,11 @@ export async function GET(request: NextRequest) {
     console.log('[Auth Callback] User info extracted:', { userId, userEmail });
 
     // 6. Store tokens and user info in session
+    // COOKIE SIZE OPTIMIZATION: Only store minimal required data
+    // - idToken: will be used for ID-JAG exchange, then removed
+    // - userId, userEmail: kept for user identification
+    // - orgAccessToken: NOT stored (not needed for token exchanges)
     session.idToken = idToken;
-    session.orgAccessToken = tokenResponse.access_token;
     session.userId = userId;
 
     if (userEmail) {

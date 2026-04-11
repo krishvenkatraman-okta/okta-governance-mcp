@@ -184,7 +184,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 7. Store MCP access token in session
+    // 7. Store MCP access token in session and remove ID-JAG (no longer needed)
+    // COOKIE SIZE OPTIMIZATION: ID-JAG is only needed for this exchange
     session.mcpAccessToken = mcpAccessToken;
 
     // Store expiration time if available
@@ -192,9 +193,13 @@ export async function POST(request: NextRequest) {
       session.mcpAccessTokenExpiresAt = decoded.exp as number;
     }
 
+    // Remove ID-JAG from session - no longer needed after MCP access token exchange
+    session.idJag = undefined;
+    session.idJagExpiresAt = undefined;
+
     await session.save();
 
-    console.log('[Access Token Exchange] MCP access token stored in session');
+    console.log('[Access Token Exchange] MCP access token stored, ID-JAG removed from session');
 
     // 8. Return success with metadata (NOT full token)
     const claims: Record<string, unknown> = {

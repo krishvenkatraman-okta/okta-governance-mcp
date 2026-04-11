@@ -3,28 +3,36 @@
  *
  * Provides secure, encrypted session storage for tokens and PKCE state.
  * Server-side only - never exposes sensitive data to browser.
+ *
+ * COOKIE SIZE OPTIMIZATION:
+ * To prevent "Cookie length is too big" errors, we:
+ * 1. Store only minimal required data
+ * 2. Remove tokens after they're no longer needed:
+ *    - idToken removed after ID-JAG exchange
+ *    - idJag removed after MCP access token exchange
+ * 3. Don't store orgAccessToken (not needed for token exchanges)
+ * 4. Keep only essential metadata (expiry timestamps)
  */
 
 import { getIronSession, IronSession } from 'iron-session';
 import { cookies } from 'next/headers';
 
 export interface SessionData {
-  // PKCE state
+  // PKCE state (cleared after callback)
   codeVerifier?: string;
   state?: string;
 
-  // Tokens
-  idToken?: string;
-  orgAccessToken?: string;
-  idJag?: string;
-  mcpAccessToken?: string;
+  // Tokens (cleaned up after use)
+  idToken?: string;           // Removed after ID-JAG exchange
+  idJag?: string;             // Removed after MCP access token exchange
+  mcpAccessToken?: string;    // Kept for MCP server calls
 
-  // Token metadata
+  // Token metadata (minimal)
   idTokenExpiresAt?: number;
   idJagExpiresAt?: number;
   mcpAccessTokenExpiresAt?: number;
 
-  // User info
+  // User info (always kept)
   userId?: string;
   userEmail?: string;
 }
