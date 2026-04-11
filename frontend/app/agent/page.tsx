@@ -32,6 +32,14 @@ interface Tool {
   };
 }
 
+interface AuthorizationMetadata {
+  resolvedRole: string;
+  capabilitiesCount: number;
+  targetAppsCount: number;
+  targetGroupsCount?: number;
+  scopeSummary: string;
+}
+
 export default function AgentPage() {
   const [tokenState, setTokenState] = useState<TokenState>({
     hasIdToken: false,
@@ -39,6 +47,7 @@ export default function AgentPage() {
     hasMcpAccessToken: false,
   });
   const [tools, setTools] = useState<Tool[]>([]);
+  const [authorization, setAuthorization] = useState<AuthorizationMetadata | null>(null);
   const [loading, setLoading] = useState<Record<string, boolean>>({});
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -164,6 +173,7 @@ export default function AgentPage() {
 
       const data = await response.json();
       setTools(data.tools || []);
+      setAuthorization(data.authorization || null);
       setSuccess(`Successfully loaded ${data.count} MCP tools`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error');
@@ -290,6 +300,94 @@ export default function AgentPage() {
           </div>
         </div>
 
+        {/* Authorization Context Card */}
+        {authorization && (
+          <div className="bg-white rounded-lg shadow-md p-6 mb-6">
+            <h2
+              className="text-xl font-semibold mb-4"
+              style={{ color: uiConfig.colors.gray900 }}
+            >
+              Authorization Context
+            </h2>
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <span style={{ color: uiConfig.colors.gray600 }}>
+                  Resolved Role:
+                </span>
+                <span
+                  className="font-semibold px-3 py-1 rounded-full text-sm"
+                  style={{
+                    backgroundColor: authorization.resolvedRole === 'SUPER_ADMIN'
+                      ? '#fef3c7'
+                      : authorization.resolvedRole === 'ORG_ADMIN'
+                      ? '#dbeafe'
+                      : '#e5e7eb',
+                    color: authorization.resolvedRole === 'SUPER_ADMIN'
+                      ? '#92400e'
+                      : authorization.resolvedRole === 'ORG_ADMIN'
+                      ? '#1e40af'
+                      : uiConfig.colors.gray900,
+                  }}
+                >
+                  {authorization.resolvedRole.replace(/_/g, ' ')}
+                </span>
+              </div>
+
+              <div className="flex items-center justify-between">
+                <span style={{ color: uiConfig.colors.gray600 }}>
+                  Access Scope:
+                </span>
+                <span
+                  className="font-semibold"
+                  style={{ color: uiConfig.colors.gray900 }}
+                >
+                  {authorization.scopeSummary}
+                </span>
+              </div>
+
+              <div className="flex items-center justify-between">
+                <span style={{ color: uiConfig.colors.gray600 }}>
+                  Capabilities:
+                </span>
+                <span
+                  className="font-semibold"
+                  style={{ color: uiConfig.colors.gray900 }}
+                >
+                  {authorization.capabilitiesCount}
+                </span>
+              </div>
+
+              {authorization.targetAppsCount > 0 && (
+                <div className="flex items-center justify-between">
+                  <span style={{ color: uiConfig.colors.gray600 }}>
+                    Manageable Apps:
+                  </span>
+                  <span
+                    className="font-semibold"
+                    style={{ color: uiConfig.colors.gray900 }}
+                  >
+                    {authorization.targetAppsCount}
+                  </span>
+                </div>
+              )}
+
+              {authorization.targetGroupsCount && authorization.targetGroupsCount > 0 && (
+                <div className="flex items-center justify-between">
+                  <span style={{ color: uiConfig.colors.gray600 }}>
+                    Manageable Groups:
+                  </span>
+                  <span
+                    className="font-semibold"
+                    style={{ color: uiConfig.colors.gray900 }}
+                  >
+                    {authorization.targetGroupsCount}
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Actions Card */}
         <div className="bg-white rounded-lg shadow-md p-6 mb-6">
           <h2
@@ -351,15 +449,18 @@ export default function AgentPage() {
           </div>
         </div>
 
-        {/* Tools Display (placeholder) */}
+        {/* Tools Display */}
         {tools.length > 0 && (
           <div className="bg-white rounded-lg shadow-md p-6 mb-6">
             <h2
               className="text-xl font-semibold mb-4"
               style={{ color: uiConfig.colors.gray900 }}
             >
-              Available Tools
+              Available Governance Tools
             </h2>
+            <p className="text-sm mb-4" style={{ color: uiConfig.colors.gray600 }}>
+              Tools available for your current authorization context
+            </p>
             <div className="space-y-3">
               {tools.map((tool) => (
                 <div

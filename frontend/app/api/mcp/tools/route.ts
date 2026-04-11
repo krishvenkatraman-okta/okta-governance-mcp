@@ -29,8 +29,17 @@ interface McpTool {
   };
 }
 
+interface AuthorizationMetadata {
+  resolvedRole: string;
+  capabilitiesCount: number;
+  targetAppsCount: number;
+  targetGroupsCount?: number;
+  scopeSummary: string;
+}
+
 interface McpToolsResponse {
   tools: McpTool[];
+  authorization?: AuthorizationMetadata;
 }
 
 interface McpErrorResponse {
@@ -118,13 +127,15 @@ export async function POST() {
 
     console.log('[MCP Tools] Successfully fetched tools', {
       count: data.tools?.length || 0,
+      resolvedRole: data.authorization?.resolvedRole,
     });
 
-    // 3. Return tools to client (no token exposure)
+    // 3. Return tools and authorization metadata to client (no token exposure)
     return NextResponse.json({
       success: true,
       tools: data.tools || [],
       count: data.tools?.length || 0,
+      authorization: data.authorization || null,
     });
   } catch (error) {
     console.error('[MCP Tools] Error:', error);

@@ -125,8 +125,44 @@ app.post('/mcp/v1/tools/list', async (req, res) => {
     // Get available tools
     const tools = getAvailableTools(context);
 
+    // Determine resolved role (highest privilege wins)
+    let resolvedRole = 'REGULAR_USER';
+    if (context.roles.superAdmin) {
+      resolvedRole = 'SUPER_ADMIN';
+    } else if (context.roles.orgAdmin) {
+      resolvedRole = 'ORG_ADMIN';
+    } else if (context.roles.appAdmin) {
+      resolvedRole = 'APP_ADMIN';
+    } else if (context.roles.groupAdmin) {
+      resolvedRole = 'GROUP_ADMIN';
+    } else if (context.roles.readOnlyAdmin) {
+      resolvedRole = 'READ_ONLY_ADMIN';
+    }
+
+    // Determine scope summary
+    let scopeSummary = 'No access';
+    if (context.roles.superAdmin || context.roles.orgAdmin) {
+      scopeSummary = 'Organization-wide';
+    } else if (context.roles.appAdmin || context.roles.groupAdmin) {
+      const targetCount = context.targets.apps.length + context.targets.groups.length;
+      if (targetCount > 0) {
+        scopeSummary = `${targetCount} owned resource(s)`;
+      } else {
+        scopeSummary = 'Limited access';
+      }
+    } else if (context.roles.regularUser) {
+      scopeSummary = 'Self-service only';
+    }
+
     res.json({
       tools: tools,
+      authorization: {
+        resolvedRole,
+        capabilitiesCount: context.capabilities.length,
+        targetAppsCount: context.targets.apps.length,
+        targetGroupsCount: context.targets.groups.length,
+        scopeSummary,
+      },
     });
   } catch (error) {
     console.error('[MRS-HTTP] Error listing tools:', error);
