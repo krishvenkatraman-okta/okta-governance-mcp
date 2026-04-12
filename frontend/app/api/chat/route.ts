@@ -387,7 +387,106 @@ export async function POST(request: NextRequest) {
       typeof latestUserMessage?.content === 'string'
         ? latestUserMessage.content
         : '';
-    const lowerText = userText.toLowerCase();
+    const lowerText = userText.toLowerCase().trim();
+
+    // Check for confirmation or cancellation of pending action
+    const isConfirmation =
+      lowerText === 'confirm' ||
+      lowerText === 'yes' ||
+      lowerText === 'proceed' ||
+      lowerText === 'yes, proceed' ||
+      lowerText === 'do it';
+
+    const isCancellation =
+      lowerText === 'cancel' ||
+      lowerText === 'no' ||
+      lowerText === 'nevermind' ||
+      lowerText === 'never mind' ||
+      lowerText === 'abort';
+
+    if (isConfirmation || isCancellation) {
+      // Check if there's a pending action
+      if (!session.pendingAction) {
+        return NextResponse.json({
+          message: 'There is no pending action to confirm or cancel.',
+        });
+      }
+
+      if (isCancellation) {
+        // Clear pending action
+        const canceledAction = session.pendingAction.type;
+        session.pendingAction = undefined;
+        await session.save();
+
+        return NextResponse.json({
+          message: `Action canceled. The pending ${canceledAction} operation has been discarded.`,
+        });
+      }
+
+      // Execute pending action
+      const pending = session.pendingAction;
+      console.log('[Chat] Executing pending action:', pending.type);
+
+      try {
+        let toolResult: string;
+
+        if (pending.type === 'manage_app_labels') {
+          // Execute label management
+          toolResult = await executeTool(
+            'manage_app_labels',
+            {
+              appId: pending.appId,
+              action: pending.action,
+              labelName: pending.labelName,
+            },
+            session.mcpAccessToken!,
+            config.mcp.endpoints.toolsCall
+          );
+        } else if (pending.type === 'manage_app_campaigns') {
+          // Execute campaign creation
+          toolResult = await executeTool(
+            'manage_app_campaigns',
+            {
+              appId: pending.appId,
+              action: pending.action,
+              name: pending.campaignName,
+            },
+            session.mcpAccessToken!,
+            config.mcp.endpoints.toolsCall
+          );
+        } else {
+          toolResult = JSON.stringify({
+            error: true,
+            message: `Unknown pending action type: ${pending.type}`,
+          });
+        }
+
+        // Clear pending action after execution
+        session.pendingAction = undefined;
+        await session.save();
+
+        // Check if tool result indicates an error or stub
+        const isStub = toolResult.includes('not yet implemented') ||
+                       toolResult.includes('not implemented');
+
+        const resultMessage = pending.appName
+          ? `Executed ${pending.type} for ${pending.appName} (${pending.appId}):\n\n${toolResult}`
+          : `Executed ${pending.type}:\n\n${toolResult}`;
+
+        return NextResponse.json({
+          message: resultMessage,
+          toolCalls: 1,
+        });
+      } catch (error) {
+        // Clear pending action even on error
+        session.pendingAction = undefined;
+        await session.save();
+
+        return NextResponse.json({
+          message: `Error executing ${pending.type}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        });
+      }
+    }
 
     // Check for tool discovery patterns
     const isToolDiscovery =
@@ -601,18 +700,21 @@ This action will:
 ⚠️ **This is a write operation that will modify the application configuration.**
 
 To proceed, please reply with "confirm".
-To cancel, reply with anything else.`;
+To cancel, please reply with "cancel".`;
+
+      // Store pending action in session
+      session.pendingAction = {
+        type: 'manage_app_labels',
+        appId,
+        appName: resolvedAppName,
+        action: 'apply',
+        labelName,
+      };
+      await session.save();
 
       return NextResponse.json({
         message: draftSummary,
         toolCalls: 0,
-        pendingAction: {
-          type: 'manage_app_labels',
-          appId,
-          appName: resolvedAppName,
-          action: 'apply',
-          labelName,
-        },
       });
     }
 
@@ -740,19 +842,22 @@ To cancel, reply with anything else.
 
 Note: Campaign creation backend is currently a stub. The guided flow is ready, but execution is not yet fully implemented.`;
 
+      // Store pending action in session
+      session.pendingAction = {
+        type: 'manage_app_campaigns',
+        appId,
+        appName: resolvedAppName,
+        action: 'create',
+        campaignName,
+        campaignType,
+        reviewerType,
+        duration,
+      };
+      await session.save();
+
       return NextResponse.json({
         message: draftSummary,
         toolCalls: 0,
-        pendingAction: {
-          type: 'manage_app_campaigns',
-          appId,
-          appName: resolvedAppName,
-          action: 'create',
-          campaignName,
-          campaignType,
-          reviewerType,
-          duration,
-        },
       });
     }
 

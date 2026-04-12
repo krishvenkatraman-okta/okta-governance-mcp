@@ -35,6 +35,15 @@ export interface SessionData {
   // User info (always kept)
   userId?: string;
   userEmail?: string;
+
+  // Pending write operations (for confirmation flow)
+  pendingAction?: {
+    type: string;
+    appId: string;
+    appName?: string | null;
+    action: string;
+    [key: string]: unknown;
+  };
 }
 
 const sessionOptions = {
