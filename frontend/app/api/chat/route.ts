@@ -197,6 +197,54 @@ async function executeTool(
   }
 }
 
+/**
+ * Pre-router helper: Extract appId pattern from user message
+ */
+function extractAppId(message: string): string | null {
+  const appIdMatch = message.match(/\b(0oa[a-zA-Z0-9]+)\b/);
+  return appIdMatch ? appIdMatch[1] : null;
+}
+
+/**
+ * Pre-router helper: Resolve app name to appId from tool result
+ */
+function resolveAppByName(
+  appName: string,
+  toolResult: string
+): { appId: string | null; matches: string[]; appNames: string[] } {
+  try {
+    // Parse tool result - expect JSON array of apps
+    const apps = JSON.parse(toolResult);
+    if (!Array.isArray(apps)) {
+      return { appId: null, matches: [], appNames: [] };
+    }
+
+    const lowerAppName = appName.toLowerCase();
+    const matchedApps = apps.filter((app: any) => {
+      const label = (app.label || '').toLowerCase();
+      return label.includes(lowerAppName);
+    });
+
+    if (matchedApps.length === 1) {
+      return {
+        appId: matchedApps[0].id,
+        matches: [matchedApps[0].label],
+        appNames: [],
+      };
+    } else if (matchedApps.length > 1) {
+      return {
+        appId: null,
+        matches: [],
+        appNames: matchedApps.map((app: any) => app.label),
+      };
+    }
+
+    return { appId: null, matches: [], appNames: [] };
+  } catch {
+    return { appId: null, matches: [], appNames: [] };
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
     console.log('[Chat] Starting chat request');
@@ -229,7 +277,96 @@ export async function POST(request: NextRequest) {
 
     console.log('[Chat] Processing chat with', messages.length, 'messages');
 
-    // 3. Build system message with mandatory tool-based grounding
+    // 3. Deterministic pre-router for app-specific governance requests
+    const latestUserMessage = messages[messages.length - 1];
+    const userText =
+      typeof latestUserMessage?.content === 'string'
+        ? latestUserMessage.content
+        : '';
+    const lowerText = userText.toLowerCase();
+
+    // Check for activity report or access review patterns
+    const isActivityReport =
+      lowerText.includes('activity report') || lowerText.includes('show activity');
+    const isAccessReview =
+      lowerText.includes('access review') ||
+      lowerText.includes('inactive users') ||
+      lowerText.includes('review candidates');
+
+    if (isActivityReport || isAccessReview) {
+      console.log('[Chat] Pre-router detected governance request');
+
+      // Extract or resolve appId
+      let appId = extractAppId(userText);
+      let resolvedAppName: string | null = null;
+
+      if (!appId) {
+        // No direct appId - need to resolve by name
+        // Extract app name (simple heuristic: text after "for")
+        const forMatch = userText.match(/for\s+([^.?!]+)/i);
+        if (forMatch) {
+          const candidateAppName = forMatch[1].trim();
+          console.log('[Chat] Resolving app name:', candidateAppName);
+
+          // Call list_manageable_apps
+          const appsResult = await executeTool(
+            'list_manageable_apps',
+            {},
+            session.mcpAccessToken!,
+            config.mcp.endpoints.toolsCall
+          );
+
+          const { appId: resolved, matches, appNames } = resolveAppByName(
+            candidateAppName,
+            appsResult
+          );
+
+          if (resolved) {
+            appId = resolved;
+            resolvedAppName = matches[0];
+            console.log('[Chat] Resolved to appId:', appId);
+          } else if (appNames.length > 1) {
+            // Multiple matches - clarification needed
+            return NextResponse.json({
+              message: `Multiple applications match "${candidateAppName}":\n${appNames.map((n) => `- ${n}`).join('\n')}\n\nPlease specify which application you mean.`,
+            });
+          } else {
+            // No match
+            return NextResponse.json({
+              message: `No matching application was found for "${candidateAppName}".`,
+            });
+          }
+        }
+      }
+
+      if (appId) {
+        // Route directly to appropriate tool
+        const toolName = isActivityReport
+          ? 'generate_app_activity_report'
+          : 'generate_access_review_candidates';
+
+        console.log('[Chat] Pre-router calling tool:', toolName, 'with appId:', appId);
+
+        const toolResult = await executeTool(
+          toolName,
+          { appId },
+          session.mcpAccessToken!,
+          config.mcp.endpoints.toolsCall
+        );
+
+        // Return tool result directly
+        const resultMessage = resolvedAppName
+          ? `Results for ${resolvedAppName} (${appId}):\n\n${toolResult}`
+          : toolResult;
+
+        return NextResponse.json({
+          message: resultMessage,
+          toolCalls: 1,
+        });
+      }
+    }
+
+    // 4. Build system message with mandatory tool-based grounding
     const systemMessage = {
       role: 'system',
       content: `You are an Okta Governance AI assistant.
@@ -341,7 +478,7 @@ Available Tools:
 - list_available_tools_for_current_user`,
     };
 
-    // 4. Call LiteLLM (using OpenAI-compatible API)
+    // 5. Call LiteLLM (using OpenAI-compatible API)
     const litellmEndpoint = process.env.LITELLM_API_BASE;
     const litellmModel = process.env.LITELLM_MODEL;
     const litellmApiKey = process.env.LITELLM_API_KEY;
