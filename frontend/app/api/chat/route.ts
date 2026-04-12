@@ -220,16 +220,21 @@ function resolveAppByName(
       return { appId: null, matches: [], appNames: [] };
     }
 
+    // Sanitize app name: trim and strip quotes
+    const sanitizedAppName = appName
+      .trim()
+      .replace(/^["']|["']$/g, '');
+
     const normalize = (s: string) =>
       s.toLowerCase().replace(/[._\s-]/g, '');
 
-    const normalizedInput = normalize(appName);
+    const normalizedInput = normalize(sanitizedAppName);
 
     // Try matching strategies in order of specificity
     let matchedApps: any[] = [];
 
     // 1. Exact label match
-    matchedApps = apps.filter((app: any) => app.label === appName);
+    matchedApps = apps.filter((app: any) => app.label === sanitizedAppName);
     if (matchedApps.length === 1) {
       return {
         appId: matchedApps[0].id,
@@ -239,7 +244,7 @@ function resolveAppByName(
     }
 
     // 2. Exact internal name match
-    matchedApps = apps.filter((app: any) => app.name === appName);
+    matchedApps = apps.filter((app: any) => app.name === sanitizedAppName);
     if (matchedApps.length === 1) {
       return {
         appId: matchedApps[0].id,
@@ -249,7 +254,7 @@ function resolveAppByName(
     }
 
     // 3. Case-insensitive partial label match
-    const lowerAppName = appName.toLowerCase();
+    const lowerAppName = sanitizedAppName.toLowerCase();
     matchedApps = apps.filter((app: any) =>
       (app.label || '').toLowerCase().includes(lowerAppName)
     );
