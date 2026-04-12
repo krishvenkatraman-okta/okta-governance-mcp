@@ -401,8 +401,6 @@ export default function AgentPage() {
         onExecuteTool={handleExecuteTool}
         onFetchTools={handleListMcpTools}
         onCheckTokens={checkTokenState}
-        onExchangeIdJag={handleExchangeIdJag}
-        onExchangeMcpToken={handleExchangeMcpToken}
       />
     </div>
   );

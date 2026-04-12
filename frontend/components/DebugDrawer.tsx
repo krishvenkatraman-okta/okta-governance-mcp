@@ -36,8 +36,6 @@ interface DebugDrawerProps {
   onExecuteTool: (toolName: string, args: Record<string, unknown>) => void;
   onFetchTools: () => void;
   onCheckTokens: () => void;
-  onExchangeIdJag: () => void;
-  onExchangeMcpToken: () => void;
 }
 
 function TokenStatusRow({ label, hasToken }: { label: string; hasToken: boolean }) {
@@ -64,8 +62,6 @@ export default function DebugDrawer({
   onExecuteTool,
   onFetchTools,
   onCheckTokens,
-  onExchangeIdJag,
-  onExchangeMcpToken,
 }: DebugDrawerProps) {
   const [isOpen, setIsOpen] = useState(false);
 
@@ -148,30 +144,6 @@ export default function DebugDrawer({
               }}
             >
               {loading.checkTokens ? 'Checking...' : 'Check Token State'}
-            </button>
-
-            <button
-              onClick={onExchangeIdJag}
-              disabled={loading.exchangeIdJag || !tokenState.authenticated}
-              className="w-full px-4 py-2 rounded text-sm font-medium disabled:opacity-50"
-              style={{
-                backgroundColor: uiConfig.colors.gray100,
-                color: uiConfig.colors.gray900,
-              }}
-            >
-              {loading.exchangeIdJag ? 'Exchanging...' : 'Exchange ID-JAG'}
-            </button>
-
-            <button
-              onClick={onExchangeMcpToken}
-              disabled={loading.exchangeMcpToken || !tokenState.hasIdJag}
-              className="w-full px-4 py-2 rounded text-sm font-medium disabled:opacity-50"
-              style={{
-                backgroundColor: uiConfig.colors.gray100,
-                color: uiConfig.colors.gray900,
-              }}
-            >
-              {loading.exchangeMcpToken ? 'Exchanging...' : 'Exchange MCP Token'}
             </button>
 
             <button
