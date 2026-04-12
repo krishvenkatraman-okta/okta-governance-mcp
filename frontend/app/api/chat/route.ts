@@ -147,6 +147,26 @@ const TOOL_DEFINITIONS = [
 ];
 
 /**
+ * Detect if a tool response indicates stub/mock implementation
+ * Returns true if the response is not a real execution
+ */
+function isStubResponse(toolResult: string): boolean {
+  const lowerResult = toolResult.toLowerCase();
+  const stubIndicators = [
+    'not implemented',
+    'not yet implemented',
+    'stub',
+    'mock',
+    'placeholder',
+    'coming soon',
+    'not available',
+    'not enabled',
+  ];
+
+  return stubIndicators.some(indicator => lowerResult.includes(indicator));
+}
+
+/**
  * Execute tool through MCP server directly using session token
  */
 async function executeTool(
@@ -465,13 +485,55 @@ export async function POST(request: NextRequest) {
         session.pendingAction = undefined;
         await session.save();
 
-        // Check if tool result indicates an error or stub
-        const isStub = toolResult.includes('not yet implemented') ||
-                       toolResult.includes('not implemented');
+        // Check if tool result indicates stub/mock implementation
+        const isStub = isStubResponse(toolResult);
 
-        const resultMessage = pending.appName
-          ? `Executed ${pending.type} for ${pending.appName} (${pending.appId}):\n\n${toolResult}`
-          : `Executed ${pending.type}:\n\n${toolResult}`;
+        let resultMessage: string;
+
+        if (isStub) {
+          // Backend is stub - make it clear no real change was made
+          if (pending.type === 'manage_app_labels') {
+            resultMessage = `⚠️ **Backend execution is not yet implemented**
+
+The label operation was confirmed, but no change has been made in Okta.
+
+**Action:** Apply label "${pending.labelName}" to ${pending.appName || pending.appId}
+**Status:** Guided flow complete, but backend execution is a stub
+
+The label has NOT been applied to the application. Backend implementation is required for real execution.`;
+          } else if (pending.type === 'manage_app_campaigns') {
+            resultMessage = `⚠️ **Backend execution is not yet implemented**
+
+The campaign was confirmed, but no campaign has been created in Okta.
+
+**Action:** Create campaign "${pending.campaignName}" for ${pending.appName || pending.appId}
+**Status:** Guided flow complete, but backend execution is a stub
+
+No campaign was created. Backend implementation is required for real execution.`;
+          } else {
+            resultMessage = `⚠️ **Backend execution is not yet implemented**
+
+The operation was confirmed, but no change has been made in Okta.
+
+**Action:** ${pending.type} for ${pending.appName || pending.appId}
+**Status:** Guided flow complete, but backend execution is a stub
+
+Backend implementation is required for real execution.`;
+          }
+        } else {
+          // Real execution - show success
+          resultMessage = pending.appName
+            ? `✅ **Operation completed successfully**
+
+**Action:** ${pending.type} for ${pending.appName} (${pending.appId})
+
+**Result:**
+${toolResult}`
+            : `✅ **Operation completed successfully**
+
+**Result:**
+${toolResult}`;
+        }
 
         return NextResponse.json({
           message: resultMessage,
@@ -700,7 +762,9 @@ This action will:
 ⚠️ **This is a write operation that will modify the application configuration.**
 
 To proceed, please reply with "confirm".
-To cancel, please reply with "cancel".`;
+To cancel, please reply with "cancel".
+
+ℹ️ **Note:** If backend execution is still a stub, no actual change will be made in Okta.`;
 
       // Store pending action in session
       session.pendingAction = {
@@ -838,9 +902,9 @@ This action will:
 ⚠️ **This is a write operation that will create a new campaign.**
 
 To proceed, please reply with "confirm".
-To cancel, reply with anything else.
+To cancel, please reply with "cancel".
 
-Note: Campaign creation backend is currently a stub. The guided flow is ready, but execution is not yet fully implemented.`;
+ℹ️ **Note:** Campaign creation backend is currently a stub. When you confirm, the guided flow will execute, but no actual campaign will be created in Okta until backend implementation is complete.`;
 
       // Store pending action in session
       session.pendingAction = {
