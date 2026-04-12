@@ -61,11 +61,90 @@ export default function AgentPage() {
     content: string;
     isError: boolean;
   } | null>(null);
+  const [bootstrapState, setBootstrapState] = useState<
+    'idle' | 'exchanging_id_jag' | 'exchanging_mcp_token' | 'ready' | 'error'
+  >('idle');
+  const [bootstrapError, setBootstrapError] = useState<string | null>(null);
+  const [debugMode, setDebugMode] = useState(false);
 
   // Check token state on mount
   useEffect(() => {
     checkTokenState();
   }, []);
+
+  // Auto-bootstrap governed session after authentication
+  useEffect(() => {
+    if (tokenState.authenticated && bootstrapState === 'idle') {
+      bootstrapGovernedSession();
+    }
+  }, [tokenState.authenticated, bootstrapState]);
+
+  /**
+   * Bootstrap governed session automatically
+   * Exchanges tokens progressively until MCP access token is available
+   */
+  const bootstrapGovernedSession = async () => {
+    try {
+      console.log('[Bootstrap] Starting governed session bootstrap');
+
+      // Already have MCP access token - done
+      if (tokenState.hasMcpAccessToken) {
+        console.log('[Bootstrap] MCP access token already available');
+        setBootstrapState('ready');
+        return;
+      }
+
+      // Step 1: Get ID-JAG if needed
+      if (!tokenState.hasIdJag) {
+        console.log('[Bootstrap] Need ID-JAG, exchanging...');
+        setBootstrapState('exchanging_id_jag');
+
+        const idJagResponse = await fetch('/api/token/id-jag', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({}),
+        });
+
+        if (!idJagResponse.ok) {
+          const data = await idJagResponse.json();
+          throw new Error(data.message || 'Failed to get ID-JAG');
+        }
+
+        console.log('[Bootstrap] ID-JAG obtained');
+
+        // Refresh token state to pick up ID-JAG
+        await checkTokenState();
+      }
+
+      // Step 2: Get MCP access token
+      console.log('[Bootstrap] Need MCP access token, exchanging...');
+      setBootstrapState('exchanging_mcp_token');
+
+      const mcpResponse = await fetch('/api/token/access-token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+
+      if (!mcpResponse.ok) {
+        const data = await mcpResponse.json();
+        throw new Error(data.message || 'Failed to get MCP access token');
+      }
+
+      console.log('[Bootstrap] MCP access token obtained');
+
+      // Refresh token state
+      await checkTokenState();
+
+      // Success
+      setBootstrapState('ready');
+      console.log('[Bootstrap] Governed session ready');
+    } catch (err) {
+      console.error('[Bootstrap] Error:', err);
+      setBootstrapState('error');
+      setBootstrapError(err instanceof Error ? err.message : 'Bootstrap failed');
+    }
+  };
 
   const checkTokenState = async () => {
     try {
@@ -358,6 +437,96 @@ export default function AgentPage() {
           </div>
         </div>
 
+        {/* Bootstrap Status Card */}
+        {isAuthenticated && (
+          <div className="bg-white rounded-lg shadow-md p-6 mb-6">
+            <h2
+              className="text-xl font-semibold mb-4"
+              style={{ color: uiConfig.colors.gray900 }}
+            >
+              Governed Session
+            </h2>
+            <div className="space-y-3">
+              {/* Bootstrap Status */}
+              {bootstrapState === 'idle' && (
+                <div className="flex items-center gap-2">
+                  <span
+                    className="w-2 h-2 rounded-full"
+                    style={{ backgroundColor: uiConfig.colors.gray300 }}
+                  />
+                  <span style={{ color: uiConfig.colors.gray600 }}>
+                    Waiting for authentication...
+                  </span>
+                </div>
+              )}
+
+              {bootstrapState === 'exchanging_id_jag' && (
+                <div className="flex items-center gap-2">
+                  <div
+                    className="w-2 h-2 rounded-full animate-pulse"
+                    style={{ backgroundColor: uiConfig.colors.primary }}
+                  />
+                  <span style={{ color: uiConfig.colors.gray900 }}>
+                    Preparing governed session: exchanging ID-JAG...
+                  </span>
+                </div>
+              )}
+
+              {bootstrapState === 'exchanging_mcp_token' && (
+                <div className="flex items-center gap-2">
+                  <div
+                    className="w-2 h-2 rounded-full animate-pulse"
+                    style={{ backgroundColor: uiConfig.colors.primary }}
+                  />
+                  <span style={{ color: uiConfig.colors.gray900 }}>
+                    Preparing governed session: getting MCP access token...
+                  </span>
+                </div>
+              )}
+
+              {bootstrapState === 'ready' && (
+                <div className="flex items-center gap-2">
+                  <span
+                    className="w-2 h-2 rounded-full"
+                    style={{ backgroundColor: uiConfig.colors.success }}
+                  />
+                  <span
+                    className="font-semibold"
+                    style={{ color: uiConfig.colors.success }}
+                  >
+                    Governed session ready
+                  </span>
+                </div>
+              )}
+
+              {bootstrapState === 'error' && (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <span
+                      className="w-2 h-2 rounded-full"
+                      style={{ backgroundColor: uiConfig.colors.error }}
+                    />
+                    <span
+                      className="font-semibold"
+                      style={{ color: uiConfig.colors.error }}
+                    >
+                      Bootstrap failed
+                    </span>
+                  </div>
+                  {bootstrapError && (
+                    <p
+                      className="text-sm pl-4"
+                      style={{ color: uiConfig.colors.gray600 }}
+                    >
+                      {bootstrapError}
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Token State Card */}
         <div className="bg-white rounded-lg shadow-md p-6 mb-6">
           <h2
@@ -488,12 +657,24 @@ export default function AgentPage() {
 
         {/* Actions Card */}
         <div className="bg-white rounded-lg shadow-md p-6 mb-6">
-          <h2
-            className="text-xl font-semibold mb-4"
-            style={{ color: uiConfig.colors.gray900 }}
-          >
-            Actions
-          </h2>
+          <div className="flex items-center justify-between mb-4">
+            <h2
+              className="text-xl font-semibold"
+              style={{ color: uiConfig.colors.gray900 }}
+            >
+              Actions
+            </h2>
+            <button
+              onClick={() => setDebugMode(!debugMode)}
+              className="text-xs px-3 py-1 rounded"
+              style={{
+                backgroundColor: debugMode ? uiConfig.colors.primary : uiConfig.colors.gray200,
+                color: debugMode ? 'white' : uiConfig.colors.gray600,
+              }}
+            >
+              {debugMode ? 'Debug: ON' : 'Debug: OFF'}
+            </button>
+          </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* Login Button */}
             <ActionButton
@@ -515,25 +696,29 @@ export default function AgentPage() {
               variant="secondary"
             />
 
-            {/* Get ID-JAG Button */}
-            <ActionButton
-              onClick={handleGetIdJag}
-              disabled={!tokenState.hasIdToken || tokenState.hasIdJag}
-              loading={loading.idJag}
-              label="Get ID-JAG"
-              description="Exchange ID token for ID-JAG"
-              variant="secondary"
-            />
+            {/* Get ID-JAG Button (Debug mode only) */}
+            {debugMode && (
+              <ActionButton
+                onClick={handleGetIdJag}
+                disabled={!tokenState.hasIdToken || tokenState.hasIdJag}
+                loading={loading.idJag}
+                label="Get ID-JAG"
+                description="[Debug] Exchange ID token for ID-JAG"
+                variant="secondary"
+              />
+            )}
 
-            {/* Get MCP Access Token Button */}
-            <ActionButton
-              onClick={handleGetMcpAccessToken}
-              disabled={!tokenState.hasIdJag || tokenState.hasMcpAccessToken}
-              loading={loading.mcpAccessToken}
-              label="Get MCP Access Token"
-              description="Exchange ID-JAG for access token"
-              variant="secondary"
-            />
+            {/* Get MCP Access Token Button (Debug mode only) */}
+            {debugMode && (
+              <ActionButton
+                onClick={handleGetMcpAccessToken}
+                disabled={!tokenState.hasIdJag || tokenState.hasMcpAccessToken}
+                loading={loading.mcpAccessToken}
+                label="Get MCP Access Token"
+                description="[Debug] Exchange ID-JAG for access token"
+                variant="secondary"
+              />
+            )}
 
             {/* List MCP Tools Button */}
             <ActionButton
