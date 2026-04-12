@@ -399,7 +399,7 @@ export default function AgentPage() {
         tools={tools}
         loading={loading}
         onExecuteTool={handleExecuteTool}
-        onFetchTools={handleFetchTools}
+        onFetchTools={handleListMcpTools}
         onCheckTokens={checkTokenState}
         onExchangeIdJag={handleExchangeIdJag}
         onExchangeMcpToken={handleExchangeMcpToken}
