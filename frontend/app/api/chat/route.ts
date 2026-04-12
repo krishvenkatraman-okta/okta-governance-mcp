@@ -361,6 +361,7 @@ REMEMBER: You present data from tools. Nothing else. No memory. No training data
     let toolCalls: ToolCall[] = [];
     let iterations = 0;
     const maxIterations = 5; // Prevent infinite loops
+    let toolExecuted = false;
 
     // Tool calling loop
     while (iterations < maxIterations) {
@@ -431,6 +432,28 @@ REMEMBER: You present data from tools. Nothing else. No memory. No training data
 
       const assistantMessage = choice.message;
 
+const userMessage = messages[messages.length - 1];
+const userText =
+  typeof userMessage?.content === 'string' ? userMessage.content : '';
+
+if (
+  (!assistantMessage.tool_calls || assistantMessage.tool_calls.length === 0) &&
+  requiresTool(userText) &&
+  !toolExecuted
+) {
+  console.error('[Chat] BLOCKED: LLM attempted to answer without tool call', {
+    userText,
+  });
+
+  return NextResponse.json(
+    {
+      error: 'Ungrounded response blocked',
+      message: 'I cannot provide this information without calling the appropriate tool.',
+    },
+    { status: 400 }
+  );
+}
+
       // Check if model wants to call tools
       if (assistantMessage.tool_calls && assistantMessage.tool_calls.length > 0) {
         console.log('[Chat] Model requested', assistantMessage.tool_calls.length, 'tool calls');
@@ -444,6 +467,7 @@ REMEMBER: You present data from tools. Nothing else. No memory. No training data
           const toolArgs = JSON.parse(toolCall.function.arguments);
 
           console.log('[Chat] Executing tool:', toolName);
+          toolExecuted = true;
 
           // Validate tool is allowed in chat
           if (!ALLOWED_TOOLS.includes(toolName)) {
@@ -522,4 +546,24 @@ REMEMBER: You present data from tools. Nothing else. No memory. No training data
       { status: 500 }
     );
   }
+}
+function requiresTool(userMessage: string): boolean {
+  const msg = userMessage.toLowerCase();
+
+  return (
+    msg.includes('list') ||
+    msg.includes('show') ||
+    msg.includes('get') ||
+    msg.includes('generate') ||
+    msg.includes('apps can i manage') ||
+    msg.includes('manageable apps') ||
+    msg.includes('activity report') ||
+    msg.includes('access review') ||
+    msg.includes('inactive users') ||
+    msg.includes('risk') ||
+    msg.includes('how many') ||
+    msg.includes('count') ||
+    msg.includes('details of') ||
+    msg.includes('report for')
+  );
 }
