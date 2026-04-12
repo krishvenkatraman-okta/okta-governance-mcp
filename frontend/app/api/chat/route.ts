@@ -6,8 +6,10 @@
  * Features:
  * - LiteLLM as orchestration layer
  * - Tool calling for read-only MCP tools
+ * - Strict grounding in actual tool results (no hallucination)
  * - Authorization context passed to model
  * - Tools executed through existing /api/mcp/call route
+ * - Temperature 0.0 for factual accuracy
  *
  * Allowed Tools (read-only):
  * - list_manageable_apps
@@ -15,6 +17,12 @@
  * - generate_access_review_candidates
  * - get_tool_requirements
  * - list_available_tools_for_current_user
+ *
+ * Grounding Rules:
+ * - Assistant may ONLY state facts from tool results
+ * - No invented app names, user counts, or metrics
+ * - Write operations explicitly marked as "not enabled in chat"
+ * - Unavailable tools clearly distinguished from nonexistent tools
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -221,28 +229,55 @@ export async function POST(request: NextRequest) {
 
     console.log('[Chat] Processing chat with', messages.length, 'messages');
 
-    // 3. Build system message with authorization context
+    // 3. Build system message with strict grounding rules
     const systemMessage = {
       role: 'system',
-      content: `You are a helpful Okta Governance AI assistant. You help users manage applications, generate reports, and understand governance tools.
+      content: `You are an Okta Governance AI assistant. Your role is to help users understand their governance scope by calling tools and presenting the results.
 
 Current User Context:
 - User ID: ${session.userId || 'unknown'}
 - User Email: ${session.userEmail || 'unknown'}
 
-Available Tools:
+Available Tools in This Chat Interface:
 - list_manageable_apps: List apps you can manage
 - generate_app_activity_report: Generate activity reports for apps
 - generate_access_review_candidates: Find users who should be reviewed for access removal
 - get_tool_requirements: Get requirements for any tool
 - list_available_tools_for_current_user: See all available tools
 
-When listing apps or showing data:
-- Be concise and clear
-- Highlight important information
-- Format output in a user-friendly way
+STRICT GROUNDING RULES (CRITICAL):
+1. NEVER fabricate or invent specific details:
+   - Do NOT make up application names, IDs, or counts
+   - Do NOT invent user names, email addresses, or user counts
+   - Do NOT create risk scores, inactive days, or activity metrics
+   - Do NOT guess at data that was not explicitly returned by a tool
 
-You can call tools to answer user questions about their governance scope and applications.`,
+2. ONLY state facts that appear in tool results:
+   - If a tool returns "3 applications", say exactly that - not "approximately 3" or "several"
+   - If a tool returns specific app names, list only those names
+   - If a tool returns no data, explicitly say "no data was returned"
+
+3. When you don't have information:
+   - Say "I don't have that information" or "I would need to call [tool name] to find that out"
+   - NEVER fill in gaps with plausible-sounding data
+
+4. For actions not in the available tools list:
+   - If user asks about write operations (create, update, delete, assign, etc.), respond:
+     "This action is not enabled in the chat assistant yet. You can use the main interface for write operations."
+   - Do NOT claim a tool "doesn't exist" - it may exist but not be enabled in chat
+
+5. For unavailable tools:
+   - If a tool call fails with "not available for chat execution", say:
+     "That tool is not enabled in this chat interface."
+   - Do NOT speculate about why or invent authorization explanations
+
+6. Response format:
+   - Present tool results clearly and accurately
+   - Use bullet points or lists for clarity
+   - Quote exact counts, names, and IDs from tool output
+   - If tool output is empty or unclear, say so explicitly
+
+Remember: You are a data presentation layer, not a decision-making system. Stick to the facts.`,
     };
 
     // 4. Call LiteLLM (using OpenAI-compatible API)
@@ -295,7 +330,7 @@ You can call tools to answer user questions about their governance scope and app
             messages: allMessages,
             tools: TOOL_DEFINITIONS,
             tool_choice: 'auto',
-            temperature: 0.2,
+            temperature: 0.0, // Zero temperature for strict factual grounding
             max_tokens: 2000,
           }),
         });
@@ -359,15 +394,26 @@ You can call tools to answer user questions about their governance scope and app
 
           console.log('[Chat] Executing tool:', toolName);
 
-          // Validate tool is allowed
+          // Validate tool is allowed in chat
           if (!ALLOWED_TOOLS.includes(toolName)) {
-            console.error('[Chat] Tool not allowed:', toolName);
+            console.error('[Chat] Tool not in chat allowlist:', toolName);
+
+            // Provide specific error based on tool name pattern
+            let errorMessage: string;
+            if (toolName.startsWith('manage_') || toolName.startsWith('create_') || toolName === 'manage_app_entitlements' || toolName === 'manage_app_labels' || toolName === 'manage_app_bundles' || toolName === 'manage_app_campaigns' || toolName === 'create_delegated_access_request' || toolName === 'manage_app_workflows') {
+              // Write operation - not enabled in chat
+              errorMessage = `Tool '${toolName}' is not enabled in the chat assistant. Write operations must be performed through the main interface.`;
+            } else {
+              // Read operation or unknown - not in allowlist
+              errorMessage = `Tool '${toolName}' is not enabled in this chat interface.`;
+            }
+
             allMessages.push({
               role: 'tool',
               tool_call_id: toolCall.id,
               content: JSON.stringify({
                 error: true,
-                message: `Tool '${toolName}' is not available for chat execution`,
+                message: errorMessage,
               }),
             });
             continue;
