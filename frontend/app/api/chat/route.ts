@@ -214,9 +214,40 @@ function resolveAppByName(
   toolResult: string
 ): { appId: string | null; matches: string[]; appNames: string[] } {
   try {
-    // Parse tool result - expect JSON array of apps
-    const apps = JSON.parse(toolResult);
-    if (!Array.isArray(apps)) {
+    console.log('[DEBUG] Raw app query:', appName);
+    console.log('[DEBUG] Raw tool result (first 500 chars):', toolResult.substring(0, 500));
+
+    // Parse tool result - handle different response structures
+    let parsed: any;
+    try {
+      parsed = JSON.parse(toolResult);
+    } catch (parseError) {
+      console.error('[DEBUG] JSON parse failed:', parseError);
+      return { appId: null, matches: [], appNames: [] };
+    }
+
+    // Extract apps array from various possible structures
+    let apps: any[] = [];
+    if (Array.isArray(parsed)) {
+      apps = parsed;
+    } else if (parsed.apps && Array.isArray(parsed.apps)) {
+      apps = parsed.apps;
+    } else if (parsed.applications && Array.isArray(parsed.applications)) {
+      apps = parsed.applications;
+    } else if (parsed.items && Array.isArray(parsed.items)) {
+      apps = parsed.items;
+    } else if (parsed.data && Array.isArray(parsed.data)) {
+      apps = parsed.data;
+    } else {
+      console.error('[DEBUG] Could not find apps array in parsed result. Keys:', Object.keys(parsed));
+      return { appId: null, matches: [], appNames: [] };
+    }
+
+    console.log('[DEBUG] Parsed apps array length:', apps.length);
+    console.log('[DEBUG] First 3 apps:', apps.slice(0, 3));
+
+    if (apps.length === 0) {
+      console.log('[DEBUG] Apps array is empty');
       return { appId: null, matches: [], appNames: [] };
     }
 
@@ -224,6 +255,8 @@ function resolveAppByName(
     const sanitizedAppName = appName
       .trim()
       .replace(/^["']|["']$/g, '');
+
+    console.log('[DEBUG] Sanitized app query:', sanitizedAppName);
 
     const normalize = (s: string) =>
       s.toLowerCase().replace(/[._\s-]/g, '');
@@ -236,6 +269,7 @@ function resolveAppByName(
     // 1. Exact label match
     matchedApps = apps.filter((app: any) => app.label === sanitizedAppName);
     if (matchedApps.length === 1) {
+      console.log('[DEBUG] Match found (exact label):', matchedApps[0].label);
       return {
         appId: matchedApps[0].id,
         matches: [matchedApps[0].label],
@@ -246,6 +280,7 @@ function resolveAppByName(
     // 2. Exact internal name match
     matchedApps = apps.filter((app: any) => app.name === sanitizedAppName);
     if (matchedApps.length === 1) {
+      console.log('[DEBUG] Match found (exact name):', matchedApps[0].label);
       return {
         appId: matchedApps[0].id,
         matches: [matchedApps[0].label],
@@ -259,6 +294,7 @@ function resolveAppByName(
       (app.label || '').toLowerCase().includes(lowerAppName)
     );
     if (matchedApps.length === 1) {
+      console.log('[DEBUG] Match found (partial label):', matchedApps[0].label);
       return {
         appId: matchedApps[0].id,
         matches: [matchedApps[0].label],
@@ -271,6 +307,7 @@ function resolveAppByName(
       (app.name || '').toLowerCase().includes(lowerAppName)
     );
     if (matchedApps.length === 1) {
+      console.log('[DEBUG] Match found (partial name):', matchedApps[0].label);
       return {
         appId: matchedApps[0].id,
         matches: [matchedApps[0].label],
@@ -289,12 +326,14 @@ function resolveAppByName(
     });
 
     if (matchedApps.length === 1) {
+      console.log('[DEBUG] Match found (normalized):', matchedApps[0].label);
       return {
         appId: matchedApps[0].id,
         matches: [matchedApps[0].label],
         appNames: [],
       };
     } else if (matchedApps.length > 1) {
+      console.log('[DEBUG] Multiple matches found:', matchedApps.length);
       return {
         appId: null,
         matches: [],
@@ -302,8 +341,10 @@ function resolveAppByName(
       };
     }
 
+    console.log('[DEBUG] No matches found after all strategies');
     return { appId: null, matches: [], appNames: [] };
-  } catch {
+  } catch (error) {
+    console.error('[DEBUG] Error in resolveAppByName:', error);
     return { appId: null, matches: [], appNames: [] };
   }
 }
