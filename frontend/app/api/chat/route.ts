@@ -494,6 +494,128 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Check for label management patterns
+    const isLabelManagement =
+      (lowerText.includes('label') || lowerText.includes('mark as')) &&
+      (lowerText.includes('apply') ||
+        lowerText.includes('add') ||
+        lowerText.includes('remove') ||
+        lowerText.includes('mark'));
+
+    if (isLabelManagement) {
+      console.log('[Chat] Pre-router detected label management request');
+
+      // Check if this is a confirmation
+      const isConfirmation =
+        lowerText === 'confirm' ||
+        lowerText === 'yes' ||
+        lowerText === 'proceed' ||
+        lowerText === 'yes, proceed' ||
+        lowerText === 'do it';
+
+      if (isConfirmation) {
+        // This is a confirmation without context - need to handle state management
+        // For now, inform user they need to restate the action
+        return NextResponse.json({
+          message:
+            'To apply a label, please specify the action. For example:\n"Apply label high-risk to Salesforce"\n"Add compliance label to ServiceNow"',
+        });
+      }
+
+      // Extract app name or ID
+      let appId = extractAppId(userText);
+      let resolvedAppName: string | null = null;
+
+      if (!appId) {
+        // Try to extract app name from various patterns
+        const toMatch = userText.match(/to\s+([^.?!]+)/i);
+        const forMatch = userText.match(/for\s+([^.?!]+)/i);
+        const candidateAppName = (toMatch || forMatch)?.[1]?.trim();
+
+        if (candidateAppName) {
+          console.log('[Chat] Resolving app name for label:', candidateAppName);
+
+          // Call list_manageable_apps (governance-enabled only)
+          const appsResult = await executeTool(
+            'list_manageable_apps',
+            {},
+            session.mcpAccessToken!,
+            config.mcp.endpoints.toolsCall
+          );
+
+          const { appId: resolved, matches, appNames } = resolveAppByName(
+            candidateAppName,
+            appsResult
+          );
+
+          if (resolved) {
+            appId = resolved;
+            resolvedAppName = matches[0];
+            console.log('[Chat] Resolved to appId:', appId);
+          } else if (appNames.length > 1) {
+            return NextResponse.json({
+              message: `Multiple applications match "${candidateAppName}":\n${appNames.map((n) => `- ${n}`).join('\n')}\n\nPlease specify which application.`,
+            });
+          } else {
+            return NextResponse.json({
+              message: `No matching governance-enabled application was found for "${candidateAppName}".\n\nOnly apps with Entitlement Management enabled can have labels applied.`,
+            });
+          }
+        } else {
+          // Missing app name
+          return NextResponse.json({
+            message:
+              'To apply a label, please specify the application.\n\nExample: "Apply label high-risk to Salesforce"',
+          });
+        }
+      }
+
+      // Extract label name/value
+      const labelMatch =
+        userText.match(/label\s+['"]?([^'"]+)['"]?\s+to/i) ||
+        userText.match(/mark\s+\w+\s+as\s+['"]?([^'"]+)['"]?/i) ||
+        userText.match(/add\s+['"]?([^'"]+)['"]?\s+label/i);
+
+      const labelName = labelMatch?.[1]?.trim();
+
+      if (!labelName) {
+        return NextResponse.json({
+          message:
+            'To apply a label, please specify the label name.\n\nExample: "Apply label high-risk to Salesforce"',
+        });
+      }
+
+      // Build draft action summary
+      const draftSummary = `I will apply the following label:
+
+**App:** ${resolvedAppName || appId}
+**App ID:** ${appId}
+**Action:** Apply label
+**Label:** ${labelName}
+
+This action will:
+- Add the '${labelName}' governance label to ${resolvedAppName || 'the application'}
+- Make the app visible in filtered views for this label
+- This change may affect governance reports and workflows
+
+⚠️ **This is a write operation that will modify the application configuration.**
+
+To proceed, please reply with "confirm".
+To cancel, reply with anything else.`;
+
+      return NextResponse.json({
+        message: draftSummary,
+        toolCalls: 0,
+        pendingAction: {
+          type: 'manage_app_labels',
+          appId,
+          appName: resolvedAppName,
+          action: 'apply',
+          labelName,
+        },
+      });
+    }
+
     // 4. Build system message with mandatory tool-based grounding
     const systemMessage = {
       role: 'system',

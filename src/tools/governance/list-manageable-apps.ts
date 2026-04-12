@@ -54,6 +54,7 @@ async function handler(
     }
 
     // Filter to governance-enabled apps only
+    // Note: emOptInStatus indicates if Entitlement Management (governance features) are enabled for the app
     console.log(`[ListManageableApps] Filtering ${manageableApps.length} apps for governance enablement`);
 
     const governanceEnabledApps: Array<{
@@ -61,7 +62,7 @@ async function handler(
       name: string;
       label: string;
       status: string;
-      emOptInStatus: string;
+      governanceEnabled: boolean;
     }> = [];
 
     for (const app of manageableApps) {
@@ -69,7 +70,7 @@ async function handler(
         // Fetch full app details to check governance status
         const appDetails = await appsClient.getById(app.id);
 
-        // Check if governance is enabled
+        // Check if governance features (Entitlement Management) are enabled
         const settings = (appDetails as any).settings;
         const emOptInStatus = settings?.emOptInStatus || 'DISABLED';
 
@@ -79,7 +80,7 @@ async function handler(
             name: appDetails.name,
             label: appDetails.label,
             status: appDetails.status,
-            emOptInStatus,
+            governanceEnabled: true,
           });
         }
       } catch (error) {

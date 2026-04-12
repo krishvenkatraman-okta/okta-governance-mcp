@@ -204,9 +204,9 @@ Please specify which application you mean."
 
 ### App Not Governance-Enabled
 ```
-"The application 'Legacy CRM' is not governance-enabled.
-Write operations are only available for governance-enabled apps.
-Ask your Okta administrator to enable governance for this app."
+"The application 'Legacy CRM' does not have governance features enabled.
+Write operations are only available for apps with Entitlement Management enabled.
+Ask your Okta administrator to enable Entitlement Management for this app."
 ```
 
 ### Missing Parameters
