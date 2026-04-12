@@ -1,7 +1,8 @@
 /**
  * Tool: list_manageable_apps
  *
- * Lists applications manageable by the current user.
+ * Lists governance-enabled applications manageable by the current user.
+ * Only returns apps where settings.emOptInStatus === "ENABLED".
  * For App Admins, this returns only apps in their role targets.
  * For Super Admins/Org Admins, this returns all apps.
  */
@@ -52,18 +53,50 @@ async function handler(
       console.log('[ListManageableApps] User has no manageable apps');
     }
 
+    // Filter to governance-enabled apps only
+    console.log(`[ListManageableApps] Filtering ${manageableApps.length} apps for governance enablement`);
+
+    const governanceEnabledApps: Array<{
+      id: string;
+      name: string;
+      label: string;
+      status: string;
+      emOptInStatus: string;
+    }> = [];
+
+    for (const app of manageableApps) {
+      try {
+        // Fetch full app details to check governance status
+        const appDetails = await appsClient.getById(app.id);
+
+        // Check if governance is enabled
+        const settings = (appDetails as any).settings;
+        const emOptInStatus = settings?.emOptInStatus || 'DISABLED';
+
+        if (emOptInStatus === 'ENABLED') {
+          governanceEnabledApps.push({
+            id: appDetails.id,
+            name: appDetails.name,
+            label: appDetails.label,
+            status: appDetails.status,
+            emOptInStatus,
+          });
+        }
+      } catch (error) {
+        console.warn(`[ListManageableApps] Failed to fetch details for app ${app.id}:`, error);
+        // Skip this app if we can't fetch details
+      }
+    }
+
+    console.log(`[ListManageableApps] Found ${governanceEnabledApps.length} governance-enabled apps (filtered from ${manageableApps.length})`);
+
     // Format response
     const response = {
-      total: manageableApps.length,
-      apps: manageableApps.map((app) => ({
-        id: app.id,
-        name: app.name,
-        label: app.label,
-        status: app.status,
-      })),
+      total: governanceEnabledApps.length,
+      apps: governanceEnabledApps,
     };
 
-    console.log(`[ListManageableApps] Returning ${response.total} apps`);
+    console.log(`[ListManageableApps] Returning ${response.total} governance-enabled apps`);
 
     return createJsonResponse(response);
   } catch (error) {
@@ -80,7 +113,7 @@ async function handler(
 export const listManageableAppsTool: ToolDefinition = {
   definition: {
     name: 'list_manageable_apps',
-    description: 'List applications manageable in your current authorization scope (all apps for organization-wide access, owned apps for scoped access)',
+    description: 'List governance-enabled applications manageable in your current authorization scope. Only returns apps where governance is enabled (emOptInStatus = ENABLED).',
     inputSchema: {
       type: 'object',
       properties: {
