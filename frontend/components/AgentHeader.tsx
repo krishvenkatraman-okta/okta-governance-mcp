@@ -55,6 +55,14 @@ export default function AgentHeader() {
               {uiConfig.tagline}
             </p>
           </div>
+
+          {/* Logout Button - Subtle */}
+          <a
+            href="/api/auth/logout"
+            className="px-4 py-2 rounded-lg text-sm font-medium text-white/90 hover:text-white hover:bg-white/10 transition-all"
+          >
+            Sign Out
+          </a>
         </div>
       </div>
 

@@ -13,6 +13,8 @@ import { useState, useEffect } from 'react';
 import AgentHeader from '@/components/AgentHeader';
 import DebugTokenPanel from '@/components/DebugTokenPanel';
 import ChatInterface from '@/components/ChatInterface';
+import ExecutionTracePanel from '@/components/ExecutionTracePanel';
+import DebugDrawer from '@/components/DebugDrawer';
 import { uiConfig } from '@/lib/ui-config';
 
 interface TokenState {
@@ -342,532 +344,71 @@ export default function AgentPage() {
   // (not based on individual tokens, which may be removed after progressive cleanup)
   const isAuthenticated = tokenState.authenticated;
 
+  // If not authenticated, show login prompt
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-screen" style={{ background: uiConfig.colors.gray50 }}>
+        <AgentHeader />
+        <main className="max-w-4xl mx-auto px-6 py-16 text-center">
+          <div className="bg-white rounded-lg shadow-lg p-12">
+            <h1 className="text-3xl font-bold mb-4" style={{ color: uiConfig.colors.gray900 }}>
+              Okta Governance Console
+            </h1>
+            <p className="text-lg mb-8" style={{ color: uiConfig.colors.gray600 }}>
+              Chat-powered governance operations with governed execution
+            </p>
+            <a
+              href="/api/auth/login"
+              className="inline-block px-6 py-3 rounded-lg font-semibold text-white"
+              style={{ backgroundColor: uiConfig.colors.primary }}
+            >
+              Sign in with Okta
+            </a>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
   return (
-    <div className="min-h-screen" style={{ background: uiConfig.colors.gray50 }}>
+    <div className="h-screen flex flex-col" style={{ background: uiConfig.colors.gray50 }}>
       {/* Branded Header */}
       <AgentHeader />
 
-      {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-6 py-8">
-        {/* Alert Messages */}
-        {error && (
-          <div
-            className="rounded-lg p-4 mb-6 border"
-            style={{
-              backgroundColor: '#fef2f2',
-              borderColor: '#fecaca',
-              color: uiConfig.colors.error,
-            }}
-          >
-            <p className="font-semibold">Error</p>
-            <p className="text-sm mt-1">{error}</p>
-          </div>
-        )}
-
-        {success && (
-          <div
-            className="rounded-lg p-4 mb-6 border"
-            style={{
-              backgroundColor: '#f0fdf4',
-              borderColor: '#bbf7d0',
-              color: uiConfig.colors.success,
-            }}
-          >
-            <p className="font-semibold">Success</p>
-            <p className="text-sm mt-1">{success}</p>
-          </div>
-        )}
-
-        {/* Login State Card */}
-        <div className="bg-white rounded-lg shadow-md p-6 mb-6">
-          <h2
-            className="text-xl font-semibold mb-4"
-            style={{ color: uiConfig.colors.gray900 }}
-          >
-            Login Status
-          </h2>
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <span style={{ color: uiConfig.colors.gray600 }}>
-                Authentication:
-              </span>
-              <span
-                className="font-semibold flex items-center gap-2"
-                style={{
-                  color: isAuthenticated
-                    ? uiConfig.colors.success
-                    : uiConfig.colors.gray600,
-                }}
-              >
-                <span
-                  className="w-2 h-2 rounded-full"
-                  style={{
-                    backgroundColor: isAuthenticated
-                      ? uiConfig.colors.success
-                      : uiConfig.colors.gray300,
-                  }}
-                />
-                {isAuthenticated ? 'Authenticated' : 'Not authenticated'}
-              </span>
-            </div>
-
-            {tokenState.userId && (
-              <div className="flex items-center justify-between">
-                <span style={{ color: uiConfig.colors.gray600 }}>User ID:</span>
-                <span
-                  className="font-mono text-sm"
-                  style={{ color: uiConfig.colors.gray900 }}
-                >
-                  {tokenState.userId}
-                </span>
-              </div>
-            )}
-
-            {tokenState.userEmail && (
-              <div className="flex items-center justify-between">
-                <span style={{ color: uiConfig.colors.gray600 }}>Email:</span>
-                <span
-                  className="text-sm"
-                  style={{ color: uiConfig.colors.gray900 }}
-                >
-                  {tokenState.userEmail}
-                </span>
-              </div>
-            )}
-          </div>
+      {/* Main Content: Chat-First Layout */}
+      <main className="flex-1 flex overflow-hidden">
+        {/* Chat Interface - Primary */}
+        <div className="flex-1 flex flex-col">
+          <ChatInterface />
         </div>
 
-        {/* Bootstrap Status Card */}
-        {isAuthenticated && (
-          <div className="bg-white rounded-lg shadow-md p-6 mb-6">
-            <h2
-              className="text-xl font-semibold mb-4"
-              style={{ color: uiConfig.colors.gray900 }}
-            >
-              Governed Session
-            </h2>
-            <div className="space-y-3">
-              {/* Bootstrap Status */}
-              {bootstrapState === 'idle' && (
-                <div className="flex items-center gap-2">
-                  <span
-                    className="w-2 h-2 rounded-full"
-                    style={{ backgroundColor: uiConfig.colors.gray300 }}
-                  />
-                  <span style={{ color: uiConfig.colors.gray600 }}>
-                    Waiting for authentication...
-                  </span>
-                </div>
-              )}
-
-              {bootstrapState === 'exchanging_id_jag' && (
-                <div className="flex items-center gap-2">
-                  <div
-                    className="w-2 h-2 rounded-full animate-pulse"
-                    style={{ backgroundColor: uiConfig.colors.primary }}
-                  />
-                  <span style={{ color: uiConfig.colors.gray900 }}>
-                    Preparing governed session: exchanging ID-JAG...
-                  </span>
-                </div>
-              )}
-
-              {bootstrapState === 'exchanging_mcp_token' && (
-                <div className="flex items-center gap-2">
-                  <div
-                    className="w-2 h-2 rounded-full animate-pulse"
-                    style={{ backgroundColor: uiConfig.colors.primary }}
-                  />
-                  <span style={{ color: uiConfig.colors.gray900 }}>
-                    Preparing governed session: getting MCP access token...
-                  </span>
-                </div>
-              )}
-
-              {bootstrapState === 'ready' && (
-                <div className="flex items-center gap-2">
-                  <span
-                    className="w-2 h-2 rounded-full"
-                    style={{ backgroundColor: uiConfig.colors.success }}
-                  />
-                  <span
-                    className="font-semibold"
-                    style={{ color: uiConfig.colors.success }}
-                  >
-                    Governed session ready
-                  </span>
-                </div>
-              )}
-
-              {bootstrapState === 'error' && (
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <span
-                      className="w-2 h-2 rounded-full"
-                      style={{ backgroundColor: uiConfig.colors.error }}
-                    />
-                    <span
-                      className="font-semibold"
-                      style={{ color: uiConfig.colors.error }}
-                    >
-                      Bootstrap failed
-                    </span>
-                  </div>
-                  {bootstrapError && (
-                    <p
-                      className="text-sm pl-4"
-                      style={{ color: uiConfig.colors.gray600 }}
-                    >
-                      {bootstrapError}
-                    </p>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Token State Card */}
-        <div className="bg-white rounded-lg shadow-md p-6 mb-6">
-          <h2
-            className="text-xl font-semibold mb-4"
-            style={{ color: uiConfig.colors.gray900 }}
-          >
-            Token State
-          </h2>
-          <div className="space-y-3">
-            <TokenStatusRow
-              label="ID Token (removed after ID-JAG)"
-              hasToken={tokenState.hasIdToken}
-            />
-            <TokenStatusRow
-              label="ID-JAG (removed after MCP token)"
-              hasToken={tokenState.hasIdJag}
-            />
-            <TokenStatusRow
-              label="MCP Access Token (final)"
-              hasToken={tokenState.hasMcpAccessToken}
-            />
-          </div>
-
-          {/* Progressive Cleanup Note */}
-          <div
-            className="mt-4 pt-4 border-t text-xs"
-            style={{
-              borderColor: uiConfig.colors.gray200,
-              color: uiConfig.colors.gray600,
-            }}
-          >
-            <p className="leading-relaxed">
-              <strong>Note:</strong> Tokens are progressively removed after each exchange
-              to keep the session cookie size small. ID Token is removed after ID-JAG exchange,
-              and ID-JAG is removed after MCP access token exchange. Missing earlier tokens
-              is expected behavior.
-            </p>
-          </div>
+        {/* Execution Trace Panel - Right Side */}
+        <div className="w-96 border-l" style={{ borderColor: uiConfig.colors.gray200 }}>
+          <ExecutionTracePanel
+            tokenState={tokenState}
+            authorization={authorization}
+            bootstrapState={bootstrapState}
+            bootstrapError={bootstrapError}
+          />
         </div>
-
-        {/* Authorization Context Card */}
-        {authorization && (
-          <div className="bg-white rounded-lg shadow-md p-6 mb-6">
-            <h2
-              className="text-xl font-semibold mb-4"
-              style={{ color: uiConfig.colors.gray900 }}
-            >
-              Authorization Context
-            </h2>
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <span style={{ color: uiConfig.colors.gray600 }}>
-                  Resolved Role:
-                </span>
-                <span
-                  className="font-semibold px-3 py-1 rounded-full text-sm"
-                  style={{
-                    backgroundColor: authorization.resolvedRole === 'SUPER_ADMIN'
-                      ? '#fef3c7'
-                      : authorization.resolvedRole === 'ORG_ADMIN'
-                      ? '#dbeafe'
-                      : '#e5e7eb',
-                    color: authorization.resolvedRole === 'SUPER_ADMIN'
-                      ? '#92400e'
-                      : authorization.resolvedRole === 'ORG_ADMIN'
-                      ? '#1e40af'
-                      : uiConfig.colors.gray900,
-                  }}
-                >
-                  {authorization.resolvedRole.replace(/_/g, ' ')}
-                </span>
-              </div>
-
-              <div className="flex items-center justify-between">
-                <span style={{ color: uiConfig.colors.gray600 }}>
-                  Access Scope:
-                </span>
-                <span
-                  className="font-semibold"
-                  style={{ color: uiConfig.colors.gray900 }}
-                >
-                  {authorization.scopeSummary}
-                </span>
-              </div>
-
-              <div className="flex items-center justify-between">
-                <span style={{ color: uiConfig.colors.gray600 }}>
-                  Capabilities:
-                </span>
-                <span
-                  className="font-semibold"
-                  style={{ color: uiConfig.colors.gray900 }}
-                >
-                  {authorization.capabilitiesCount}
-                </span>
-              </div>
-
-              {authorization.targetAppsCount > 0 && (
-                <div className="flex items-center justify-between">
-                  <span style={{ color: uiConfig.colors.gray600 }}>
-                    Manageable Apps:
-                  </span>
-                  <span
-                    className="font-semibold"
-                    style={{ color: uiConfig.colors.gray900 }}
-                  >
-                    {authorization.targetAppsCount}
-                  </span>
-                </div>
-              )}
-
-              {authorization.targetGroupsCount && authorization.targetGroupsCount > 0 && (
-                <div className="flex items-center justify-between">
-                  <span style={{ color: uiConfig.colors.gray600 }}>
-                    Manageable Groups:
-                  </span>
-                  <span
-                    className="font-semibold"
-                    style={{ color: uiConfig.colors.gray900 }}
-                  >
-                    {authorization.targetGroupsCount}
-                  </span>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Actions Card */}
-        <div className="bg-white rounded-lg shadow-md p-6 mb-6">
-          <div className="flex items-center justify-between mb-4">
-            <h2
-              className="text-xl font-semibold"
-              style={{ color: uiConfig.colors.gray900 }}
-            >
-              Actions
-            </h2>
-            <button
-              onClick={() => setDebugMode(!debugMode)}
-              className="text-xs px-3 py-1 rounded"
-              style={{
-                backgroundColor: debugMode ? uiConfig.colors.primary : uiConfig.colors.gray200,
-                color: debugMode ? 'white' : uiConfig.colors.gray600,
-              }}
-            >
-              {debugMode ? 'Debug: ON' : 'Debug: OFF'}
-            </button>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Login Button */}
-            <ActionButton
-              onClick={handleLogin}
-              disabled={isAuthenticated}
-              loading={false}
-              label="Login with Okta"
-              description="Authenticate via Okta OIDC"
-              variant="primary"
-            />
-
-            {/* Logout Button */}
-            <ActionButton
-              onClick={handleLogout}
-              disabled={!isAuthenticated}
-              loading={false}
-              label="Logout"
-              description="Clear session and logout"
-              variant="secondary"
-            />
-
-            {/* Get ID-JAG Button (Debug mode only) */}
-            {debugMode && (
-              <ActionButton
-                onClick={handleGetIdJag}
-                disabled={!tokenState.hasIdToken || tokenState.hasIdJag}
-                loading={loading.idJag}
-                label="Get ID-JAG"
-                description="[Debug] Exchange ID token for ID-JAG"
-                variant="secondary"
-              />
-            )}
-
-            {/* Get MCP Access Token Button (Debug mode only) */}
-            {debugMode && (
-              <ActionButton
-                onClick={handleGetMcpAccessToken}
-                disabled={!tokenState.hasIdJag || tokenState.hasMcpAccessToken}
-                loading={loading.mcpAccessToken}
-                label="Get MCP Access Token"
-                description="[Debug] Exchange ID-JAG for access token"
-                variant="secondary"
-              />
-            )}
-
-            {/* List MCP Tools Button */}
-            <ActionButton
-              onClick={handleListMcpTools}
-              disabled={!tokenState.hasMcpAccessToken}
-              loading={loading.tools}
-              label="List MCP Tools"
-              description="Fetch available governance tools"
-              variant="accent"
-            />
-
-            {/* Open Chat Assistant Button */}
-            <ActionButton
-              onClick={() => setShowChat(!showChat)}
-              disabled={!tokenState.hasMcpAccessToken}
-              loading={false}
-              label={showChat ? 'Close Chat Assistant' : 'Open Chat Assistant'}
-              description="Chat with AI governance assistant"
-              variant="primary"
-            />
-          </div>
-        </div>
-
-        {/* Chat Interface */}
-        {showChat && (
-          <div className="mb-6">
-            <ChatInterface onClose={() => setShowChat(false)} />
-          </div>
-        )}
-
-        {/* Tools Display */}
-        {tools.length > 0 && (
-          <div className="bg-white rounded-lg shadow-md p-6 mb-6">
-            <h2
-              className="text-xl font-semibold mb-4"
-              style={{ color: uiConfig.colors.gray900 }}
-            >
-              Available Governance Tools
-            </h2>
-            <p className="text-sm mb-4" style={{ color: uiConfig.colors.gray600 }}>
-              Tools available for your current authorization context
-            </p>
-            <div className="space-y-3">
-              {tools.map((tool) => (
-                <div
-                  key={tool.name}
-                  className="border rounded-lg p-4"
-                  style={{ borderColor: uiConfig.colors.gray200 }}
-                >
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <h3
-                        className="font-semibold mb-1"
-                        style={{ color: uiConfig.colors.gray900 }}
-                      >
-                        {tool.name}
-                      </h3>
-                      <p className="text-sm" style={{ color: uiConfig.colors.gray600 }}>
-                        {tool.description}
-                      </p>
-                    </div>
-                    {/* Show Run button for list_manageable_apps */}
-                    {tool.name === 'list_manageable_apps' && (
-                      <button
-                        onClick={() => handleExecuteTool(tool.name)}
-                        disabled={loading[tool.name]}
-                        className="ml-4 px-4 py-2 rounded-lg text-sm font-semibold transition-colors"
-                        style={{
-                          backgroundColor: loading[tool.name]
-                            ? uiConfig.colors.gray300
-                            : uiConfig.colors.primary,
-                          color: 'white',
-                          cursor: loading[tool.name] ? 'not-allowed' : 'pointer',
-                        }}
-                      >
-                        {loading[tool.name] ? 'Running...' : 'Run'}
-                      </button>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Tool Execution Result */}
-        {toolResult && (
-          <div className="bg-white rounded-lg shadow-md p-6 mb-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2
-                className="text-xl font-semibold"
-                style={{ color: uiConfig.colors.gray900 }}
-              >
-                Tool Result: {toolResult.toolName}
-              </h2>
-              <button
-                onClick={() => setToolResult(null)}
-                className="text-sm px-3 py-1 rounded"
-                style={{
-                  backgroundColor: uiConfig.colors.gray200,
-                  color: uiConfig.colors.gray900,
-                }}
-              >
-                Clear
-              </button>
-            </div>
-            <div
-              className="rounded-lg p-4 font-mono text-sm overflow-auto max-h-96"
-              style={{
-                backgroundColor: toolResult.isError ? '#fef2f2' : '#f0fdf4',
-                border: `1px solid ${toolResult.isError ? '#fecaca' : '#bbf7d0'}`,
-                color: toolResult.isError ? uiConfig.colors.error : '#166534',
-              }}
-            >
-              <pre className="whitespace-pre-wrap break-words">
-                {toolResult.content}
-              </pre>
-            </div>
-          </div>
-        )}
-
-        {/* Debug Panel Toggle */}
-        <div className="mb-6">
-          <button
-            onClick={() => setShowDebugPanel(!showDebugPanel)}
-            className="text-sm px-4 py-2 bg-gray-800 text-white rounded-lg hover:bg-gray-700"
-          >
-            {showDebugPanel ? 'Hide Debug Panel' : 'Show Debug Panel (Local Only)'}
-          </button>
-          <p
-            className="text-xs mt-2"
-            style={{ color: uiConfig.colors.gray600 }}
-          >
-            Earlier tokens may be removed after exchange to keep the session cookie small.
-          </p>
-        </div>
-
-        {/* Debug Token Panel */}
-        {showDebugPanel && (
-          <div className="mb-6">
-            <DebugTokenPanel />
-          </div>
-        )}
       </main>
+
+      {/* Debug Drawer - Collapsible */}
+      <DebugDrawer
+        tokenState={tokenState}
+        tools={tools}
+        loading={loading}
+        onExecuteTool={handleExecuteTool}
+        onFetchTools={handleFetchTools}
+        onCheckTokens={checkTokenState}
+        onExchangeIdJag={handleExchangeIdJag}
+        onExchangeMcpToken={handleExchangeMcpToken}
+      />
     </div>
   );
 }
 
-// Token Status Row Component
+// Token Status Row Component (used by DebugDrawer)
 function TokenStatusRow({
   label,
   hasToken,

@@ -25,10 +25,10 @@ interface ChatInterfaceProps {
 }
 
 const SUGGESTED_PROMPTS = [
-  "What apps can I manage?",
-  "Show my governance tools",
-  "List all available tools",
-  "What are the requirements for list_manageable_apps?",
+  "What governance-enabled apps can I manage?",
+  "Generate activity report for ServiceNow",
+  "Create review campaign for Salesforce",
+  "Apply label high-risk to Salesforce",
 ];
 
 export default function ChatInterface({ onClose }: ChatInterfaceProps) {
@@ -88,32 +88,20 @@ export default function ChatInterface({ onClose }: ChatInterfaceProps) {
   };
 
   return (
-    <div className="bg-white rounded-lg shadow-md flex flex-col" style={{ height: '600px' }}>
+    <div className="bg-white flex flex-col h-full">
       {/* Header */}
       <div
-        className="p-4 border-b flex items-center justify-between"
+        className="p-6 border-b flex items-center justify-between"
         style={{ borderColor: uiConfig.colors.gray200 }}
       >
         <div>
-          <h2 className="font-semibold text-lg" style={{ color: uiConfig.colors.gray900 }}>
-            Governance Assistant
-          </h2>
-          <p className="text-xs" style={{ color: uiConfig.colors.gray600 }}>
-            Ask questions about your apps and governance tools
+          <h1 className="font-bold text-2xl" style={{ color: uiConfig.colors.gray900 }}>
+            Okta Governance Assistant
+          </h1>
+          <p className="text-sm mt-1" style={{ color: uiConfig.colors.gray600 }}>
+            Chat-powered governance operations with governed execution
           </p>
         </div>
-        {onClose && (
-          <button
-            onClick={onClose}
-            className="text-sm px-3 py-1 rounded"
-            style={{
-              backgroundColor: uiConfig.colors.gray200,
-              color: uiConfig.colors.gray900,
-            }}
-          >
-            Close
-          </button>
-        )}
       </div>
 
       {/* Messages */}
