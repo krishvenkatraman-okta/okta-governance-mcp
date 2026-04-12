@@ -207,6 +207,7 @@ function extractAppId(message: string): string | null {
 
 /**
  * Pre-router helper: Resolve app name to appId from tool result
+ * Uses fuzzy matching: exact → partial → normalized
  */
 function resolveAppByName(
   appName: string,
@@ -219,10 +220,67 @@ function resolveAppByName(
       return { appId: null, matches: [], appNames: [] };
     }
 
+    const normalize = (s: string) =>
+      s.toLowerCase().replace(/[._\s-]/g, '');
+
+    const normalizedInput = normalize(appName);
+
+    // Try matching strategies in order of specificity
+    let matchedApps: any[] = [];
+
+    // 1. Exact label match
+    matchedApps = apps.filter((app: any) => app.label === appName);
+    if (matchedApps.length === 1) {
+      return {
+        appId: matchedApps[0].id,
+        matches: [matchedApps[0].label],
+        appNames: [],
+      };
+    }
+
+    // 2. Exact internal name match
+    matchedApps = apps.filter((app: any) => app.name === appName);
+    if (matchedApps.length === 1) {
+      return {
+        appId: matchedApps[0].id,
+        matches: [matchedApps[0].label],
+        appNames: [],
+      };
+    }
+
+    // 3. Case-insensitive partial label match
     const lowerAppName = appName.toLowerCase();
-    const matchedApps = apps.filter((app: any) => {
-      const label = (app.label || '').toLowerCase();
-      return label.includes(lowerAppName);
+    matchedApps = apps.filter((app: any) =>
+      (app.label || '').toLowerCase().includes(lowerAppName)
+    );
+    if (matchedApps.length === 1) {
+      return {
+        appId: matchedApps[0].id,
+        matches: [matchedApps[0].label],
+        appNames: [],
+      };
+    }
+
+    // 4. Case-insensitive partial internal name match
+    matchedApps = apps.filter((app: any) =>
+      (app.name || '').toLowerCase().includes(lowerAppName)
+    );
+    if (matchedApps.length === 1) {
+      return {
+        appId: matchedApps[0].id,
+        matches: [matchedApps[0].label],
+        appNames: [],
+      };
+    }
+
+    // 5. Normalized comparison (removes punctuation, dots, underscores, spaces)
+    matchedApps = apps.filter((app: any) => {
+      const normalizedLabel = normalize(app.label || '');
+      const normalizedName = normalize(app.name || '');
+      return (
+        normalizedLabel.includes(normalizedInput) ||
+        normalizedName.includes(normalizedInput)
+      );
     });
 
     if (matchedApps.length === 1) {
@@ -284,6 +342,30 @@ export async function POST(request: NextRequest) {
         ? latestUserMessage.content
         : '';
     const lowerText = userText.toLowerCase();
+
+    // Check for tool discovery patterns
+    const isToolDiscovery =
+      lowerText.includes('list all available tools') ||
+      lowerText.includes('what tools are available') ||
+      lowerText.includes('show my governance tools') ||
+      lowerText.includes('what can i do') ||
+      (lowerText.includes('available tools') && lowerText.includes('list'));
+
+    if (isToolDiscovery) {
+      console.log('[Chat] Pre-router detected tool discovery request');
+
+      const toolResult = await executeTool(
+        'list_available_tools_for_current_user',
+        {},
+        session.mcpAccessToken!,
+        config.mcp.endpoints.toolsCall
+      );
+
+      return NextResponse.json({
+        message: toolResult,
+        toolCalls: 1,
+      });
+    }
 
     // Check for activity report or access review patterns
     const isActivityReport =
