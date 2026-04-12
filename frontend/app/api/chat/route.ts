@@ -616,6 +616,146 @@ To cancel, reply with anything else.`;
       });
     }
 
+    // Check for campaign creation patterns
+    const isCampaignCreation =
+      (lowerText.includes('campaign') || lowerText.includes('review') || lowerText.includes('certification')) &&
+      (lowerText.includes('create') ||
+        lowerText.includes('start') ||
+        lowerText.includes('launch') ||
+        lowerText.includes('set up') ||
+        lowerText.includes('setup'));
+
+    if (isCampaignCreation) {
+      console.log('[Chat] Pre-router detected campaign creation request');
+
+      // Check if this is a confirmation
+      const isConfirmation =
+        lowerText === 'confirm' ||
+        lowerText === 'yes' ||
+        lowerText === 'proceed' ||
+        lowerText === 'yes, proceed' ||
+        lowerText === 'do it';
+
+      if (isConfirmation) {
+        // Confirmation without context - need state management
+        return NextResponse.json({
+          message:
+            'To create a campaign, please specify the action. For example:\n"Create review campaign for Salesforce"\n"Start access certification for ServiceNow"',
+        });
+      }
+
+      // Extract app name or ID
+      let appId = extractAppId(userText);
+      let resolvedAppName: string | null = null;
+
+      if (!appId) {
+        // Try to extract app name from various patterns
+        const forMatch = userText.match(/for\s+([^.?!]+)/i);
+        const onMatch = userText.match(/on\s+([^.?!]+)/i);
+        const candidateAppName = (forMatch || onMatch)?.[1]?.trim();
+
+        if (candidateAppName) {
+          console.log('[Chat] Resolving app name for campaign:', candidateAppName);
+
+          // Call list_manageable_apps (governance-enabled only)
+          const appsResult = await executeTool(
+            'list_manageable_apps',
+            {},
+            session.mcpAccessToken!,
+            config.mcp.endpoints.toolsCall
+          );
+
+          const { appId: resolved, matches, appNames } = resolveAppByName(
+            candidateAppName,
+            appsResult
+          );
+
+          if (resolved) {
+            appId = resolved;
+            resolvedAppName = matches[0];
+            console.log('[Chat] Resolved to appId:', appId);
+          } else if (appNames.length > 1) {
+            return NextResponse.json({
+              message: `Multiple applications match "${candidateAppName}":\n${appNames.map((n) => `- ${n}`).join('\n')}\n\nPlease specify which application.`,
+            });
+          } else {
+            return NextResponse.json({
+              message: `No matching governance-enabled application was found for "${candidateAppName}".\n\nOnly apps with Entitlement Management enabled can have campaigns created.`,
+            });
+          }
+        } else {
+          // Missing app name
+          return NextResponse.json({
+            message:
+              'To create a campaign, please specify the application.\n\nExample: "Create review campaign for Salesforce"',
+          });
+        }
+      }
+
+      // Extract or generate campaign name
+      let campaignName = '';
+      const nameMatch = userText.match(/named?\s+['"]([^'"]+)['"]/i) ||
+                        userText.match(/called?\s+['"]([^'"]+)['"]/i);
+
+      if (nameMatch) {
+        campaignName = nameMatch[1].trim();
+      } else {
+        // Generate default name
+        const currentDate = new Date().toISOString().split('T')[0];
+        campaignName = `Access Review - ${resolvedAppName || appId} - ${currentDate}`;
+      }
+
+      // Determine campaign type (default to access certification)
+      const campaignType = lowerText.includes('inactive') || lowerText.includes('orphan')
+        ? 'inactive_users'
+        : 'access_certification';
+
+      // Default reviewer type
+      const reviewerType = 'app_owner';
+
+      // Default duration
+      const duration = '14 days';
+
+      // Build draft campaign summary
+      const draftSummary = `I will create the following access certification campaign:
+
+**App:** ${resolvedAppName || appId}
+**App ID:** ${appId}
+**Campaign Name:** ${campaignName}
+**Campaign Type:** ${campaignType === 'access_certification' ? 'Access Certification' : 'Inactive Users Review'}
+**Reviewer:** App Owner
+**Duration:** ${duration}
+**Candidate Selection:** All users with current access to this application
+
+This action will:
+- Create a new governance campaign for ${resolvedAppName || 'the application'}
+- Campaign will be created in DRAFT status (not launched automatically)
+- Reviewers will be assigned based on app ownership
+- You can launch the campaign later from the Governance Console
+
+⚠️ **This is a write operation that will create a new campaign.**
+
+To proceed, please reply with "confirm".
+To cancel, reply with anything else.
+
+Note: Campaign creation backend is currently a stub. The guided flow is ready, but execution is not yet fully implemented.`;
+
+      return NextResponse.json({
+        message: draftSummary,
+        toolCalls: 0,
+        pendingAction: {
+          type: 'manage_app_campaigns',
+          appId,
+          appName: resolvedAppName,
+          action: 'create',
+          campaignName,
+          campaignType,
+          reviewerType,
+          duration,
+        },
+      });
+    }
+
     // 4. Build system message with mandatory tool-based grounding
     const systemMessage = {
       role: 'system',
