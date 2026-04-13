@@ -16,11 +16,11 @@ import { listAvailableToolsTool } from './meta/list-available-tools.js';
 import { listManageableAppsTool } from './governance/list-manageable-apps.js';
 import { generateAppActivityReportTool } from './governance/generate-app-activity-report.js';
 import { generateReviewCandidatesTool } from './governance/generate-review-candidates.js';
+import { manageAppLabelsTool } from './governance/manage-app-labels.js';
 
 // Stubbed governance tools (authorization checks only)
 import {
   manageAppEntitlementsTool,
-  manageAppLabelsTool,
   manageAppBundlesTool,
   manageAppCampaignsTool,
   createDelegatedAccessRequestTool,

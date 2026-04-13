@@ -71,12 +71,69 @@ export const governanceClient = {
   },
 
   /**
-   * Labels (placeholder)
+   * Labels API
    */
   labels: {
-    list: async () => {
-      // TODO: Implement when labels tools are created
-      throw new Error('Not implemented');
+    /**
+     * List all labels
+     */
+    list: async (scopes: string): Promise<any> => {
+      return await governanceRequest('/governance/api/v1/labels', {
+        method: 'GET',
+        scopes,
+      });
+    },
+
+    /**
+     * Create a label
+     */
+    create: async (data: { name: string; description?: string }, scopes: string): Promise<any> => {
+      return await governanceRequest('/governance/api/v1/labels', {
+        method: 'POST',
+        body: data,
+        scopes,
+      });
+    },
+
+    /**
+     * Get label by ID
+     */
+    getById: async (labelId: string, scopes: string): Promise<any> => {
+      return await governanceRequest(`/governance/api/v1/labels/${labelId}`, {
+        method: 'GET',
+        scopes,
+      });
+    },
+
+    /**
+     * Assign label to resource
+     */
+    assign: async (labelId: string, data: { resourceId: string; resourceType: string }, scopes: string): Promise<any> => {
+      return await governanceRequest(`/governance/api/v1/labels/${labelId}/assignments`, {
+        method: 'POST',
+        body: data,
+        scopes,
+      });
+    },
+
+    /**
+     * Remove label from resource
+     */
+    unassign: async (labelId: string, resourceId: string, scopes: string): Promise<any> => {
+      return await governanceRequest(`/governance/api/v1/labels/${labelId}/assignments/${resourceId}`, {
+        method: 'DELETE',
+        scopes,
+      });
+    },
+
+    /**
+     * Get labels assigned to a resource
+     */
+    getResourceLabels: async (resourceId: string, resourceType: string, scopes: string): Promise<any> => {
+      return await governanceRequest(`/governance/api/v1/resources/${resourceId}/labels?resourceType=${resourceType}`, {
+        method: 'GET',
+        scopes,
+      });
     },
   },
 

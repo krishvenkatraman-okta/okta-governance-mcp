@@ -55,32 +55,6 @@ export const manageAppEntitlementsTool: ToolDefinition = {
 };
 
 /**
- * Stub: manage_app_labels
- */
-export const manageAppLabelsTool: ToolDefinition = {
-  definition: {
-    name: 'manage_app_labels',
-    description: 'Manage labels for applications within your authorization scope (not yet implemented)',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        appId: {
-          type: 'string',
-          description: 'Application ID',
-        },
-        action: {
-          type: 'string',
-          enum: ['list', 'create', 'apply', 'remove'],
-          description: 'Action to perform',
-        },
-      },
-      required: ['appId', 'action'],
-    },
-  },
-  handler: createStubHandler('manage_app_labels'),
-};
-
-/**
  * Stub: manage_app_bundles
  */
 export const manageAppBundlesTool: ToolDefinition = {
