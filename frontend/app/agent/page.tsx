@@ -15,6 +15,7 @@ import DebugTokenPanel from '@/components/DebugTokenPanel';
 import ChatInterface from '@/components/ChatInterface';
 import ExecutionTracePanel from '@/components/ExecutionTracePanel';
 import DebugDrawer from '@/components/DebugDrawer';
+import ToolExplorer from '@/components/ToolExplorer';
 import { uiConfig } from '@/lib/ui-config';
 
 interface TokenState {
@@ -68,6 +69,7 @@ export default function AgentPage() {
   >('idle');
   const [bootstrapError, setBootstrapError] = useState<string | null>(null);
   const [debugMode, setDebugMode] = useState(false);
+  const [showToolExplorer, setShowToolExplorer] = useState(false);
 
   // Check token state on mount
   useEffect(() => {
@@ -402,6 +404,27 @@ export default function AgentPage() {
         onFetchTools={handleListMcpTools}
         onCheckTokens={checkTokenState}
       />
+
+      {/* Tool Explorer Button - Floating */}
+      <button
+        onClick={() => setShowToolExplorer(true)}
+        className="fixed bottom-20 right-4 px-4 py-3 rounded-lg shadow-lg text-sm font-medium flex items-center gap-2"
+        style={{
+          backgroundColor: uiConfig.colors.primary,
+          color: 'white',
+        }}
+      >
+        📚 Browse Tools
+      </button>
+
+      {/* Tool Explorer Modal */}
+      {showToolExplorer && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="max-w-6xl w-full">
+            <ToolExplorer onClose={() => setShowToolExplorer(false)} />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
