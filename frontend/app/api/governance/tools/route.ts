@@ -29,7 +29,7 @@ export async function GET(request: NextRequest) {
     // Fetch available tools from MCP server
     let availableToolNames: string[] = [];
     try {
-      const response = await fetch(`${config.mcp.endpoints.toolsList}`, {
+      const response = await fetch(`${config.mcp.endpoints.tools}`, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${session.mcpAccessToken}`,

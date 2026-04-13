@@ -360,7 +360,7 @@ export default function AgentPage() {
               Chat-powered governance operations with governed execution
             </p>
             <a
-              href="/api/auth/login"
+              href="/api/auth/start"
               className="inline-block px-6 py-3 rounded-lg font-semibold text-white"
               style={{ backgroundColor: uiConfig.colors.primary }}
             >

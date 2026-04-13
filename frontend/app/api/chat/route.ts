@@ -857,7 +857,9 @@ ${toolResult}`;
     const isToolDiscovery =
       lowerText.includes('list all available tools') ||
       lowerText.includes('what tools are available') ||
+      lowerText.includes('what governance tools') ||
       lowerText.includes('show my governance tools') ||
+      lowerText.includes('list available tools') ||
       lowerText.includes('what can i do') ||
       (lowerText.includes('available tools') && lowerText.includes('list'));
 
@@ -866,6 +868,32 @@ ${toolResult}`;
 
       const toolResult = await executeTool(
         'list_available_tools_for_current_user',
+        {},
+        session.mcpAccessToken!,
+        config.mcp.endpoints.toolsCall
+      );
+
+      return NextResponse.json({
+        message: toolResult,
+        toolCalls: 1,
+      });
+    }
+
+    // Check for app discovery patterns
+    const isAppDiscovery =
+      lowerText.includes('what apps can i manage') ||
+      lowerText.includes('what governance-enabled apps') ||
+      lowerText.includes('what applications can i manage') ||
+      lowerText.includes('list manageable apps') ||
+      lowerText.includes('list my apps') ||
+      lowerText.includes('show manageable apps') ||
+      lowerText.includes('show my apps');
+
+    if (isAppDiscovery) {
+      console.log('[Chat] Pre-router detected app discovery request');
+
+      const toolResult = await executeTool(
+        'list_manageable_apps',
         {},
         session.mcpAccessToken!,
         config.mcp.endpoints.toolsCall
@@ -1459,6 +1487,29 @@ Available Tools:
       }
 
       const assistantMessage = choice.message;
+
+      // PART 2: Detect pseudo tool-call text (JSON in content instead of actual tool_calls)
+      // If the assistant returns text that looks like a tool call JSON instead of using
+      // actual tool_calls metadata, treat it as invalid ungrounded output
+      if (
+        assistantMessage.content &&
+        typeof assistantMessage.content === 'string' &&
+        !assistantMessage.tool_calls &&
+        (assistantMessage.content.includes('"function":') ||
+          assistantMessage.content.includes('"name":') && assistantMessage.content.includes('"arguments":'))
+      ) {
+        console.error('[Chat] BLOCKED: LLM returned pseudo tool-call text instead of actual tool_calls', {
+          contentPreview: assistantMessage.content.substring(0, 200),
+        });
+
+        return NextResponse.json(
+          {
+            error: 'Invalid response format',
+            message: 'I cannot provide this information without calling the appropriate tool. Please try rephrasing your question.',
+          },
+          { status: 400 }
+        );
+      }
 
 const userMessage = messages[messages.length - 1];
 const userText =

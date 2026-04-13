@@ -94,7 +94,7 @@ export default function ToolExplorer({ onClose }: { onClose?: () => void }) {
 
     // Authorization
     if (!tool.isAuthorized) {
-      badges.push({ label: 'LOCKED', color: uiConfig.colors.gray500 });
+      badges.push({ label: 'LOCKED', color: uiConfig.colors.gray600 });
     }
 
     return badges;
@@ -237,7 +237,7 @@ export default function ToolExplorer({ onClose }: { onClose?: () => void }) {
 
               {/* Example Usage */}
               {tool.exampleUsage && (
-                <div className="text-xs italic" style={{ color: uiConfig.colors.gray500 }}>
+                <div className="text-xs italic" style={{ color: uiConfig.colors.gray600 }}>
                   "{tool.exampleUsage}"
                 </div>
               )}
@@ -256,7 +256,7 @@ export default function ToolExplorer({ onClose }: { onClose?: () => void }) {
         </div>
 
         {displayTools.length === 0 && (
-          <div className="text-center py-12" style={{ color: uiConfig.colors.gray500 }}>
+          <div className="text-center py-12" style={{ color: uiConfig.colors.gray600 }}>
             No tools in this category
           </div>
         )}
@@ -297,7 +297,7 @@ export default function ToolExplorer({ onClose }: { onClose?: () => void }) {
                 <button
                   onClick={() => setSelectedTool(null)}
                   className="text-2xl leading-none"
-                  style={{ color: uiConfig.colors.gray500 }}
+                  style={{ color: uiConfig.colors.gray600 }}
                 >
                   ×
                 </button>

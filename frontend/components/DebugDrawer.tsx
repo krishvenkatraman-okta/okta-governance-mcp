@@ -45,7 +45,7 @@ function TokenStatusRow({ label, hasToken }: { label: string; hasToken: boolean 
       <span
         className="flex items-center gap-2"
         style={{
-          color: hasToken ? uiConfig.colors.success : uiConfig.colors.gray400,
+          color: hasToken ? uiConfig.colors.success : uiConfig.colors.gray600,
         }}
       >
         <span className="w-2 h-2 rounded-full" style={{ backgroundColor: hasToken ? uiConfig.colors.success : uiConfig.colors.gray300 }} />

@@ -178,7 +178,7 @@ export default function ExecutionTracePanel({
               color: uiConfig.colors.gray600,
             }}
           >
-            <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: uiConfig.colors.gray400 }} />
+            <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: uiConfig.colors.gray300 }} />
             PENDING
           </div>
         );
@@ -212,7 +212,7 @@ export default function ExecutionTracePanel({
                 <span
                   className="text-xs font-bold"
                   style={{
-                    color: uiConfig.colors.gray400,
+                    color: uiConfig.colors.gray600,
                   }}
                 >
                   {index + 1}
@@ -287,7 +287,7 @@ export default function ExecutionTracePanel({
         className="p-3 border-t text-xs"
         style={{
           borderColor: uiConfig.colors.gray200,
-          color: uiConfig.colors.gray500,
+          color: uiConfig.colors.gray600,
         }}
       >
         Last updated: {new Date().toLocaleTimeString()}
