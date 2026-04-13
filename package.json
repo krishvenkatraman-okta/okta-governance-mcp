@@ -14,6 +14,7 @@
     "start": "npm run start:mrs-http",
     "clean": "rm -rf dist",
     "parse-postman": "tsx scripts/parse-postman.ts",
+    "verify-registry": "tsx scripts/verify-registry.ts",
     "generate-keypair": "tsx scripts/generate-keypair.ts",
     "generate-keys": "tsx scripts/generate-keypair.ts",
     "generate-token": "tsx scripts/generate-test-token.ts",

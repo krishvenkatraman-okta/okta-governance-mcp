@@ -22,8 +22,13 @@ let registry: EndpointRegistry | null = null;
 
 /**
  * Load endpoint registry from Postman collection
+ *
+ * Loads ALL endpoints from the Postman collection and makes them available
+ * for intelligent tool execution via endpoint metadata.
  */
 export function loadEndpointRegistry(postmanCollectionPath: string): EndpointRegistry {
+  console.log('[EndpointRegistry] Loading endpoints from:', postmanCollectionPath);
+
   const endpoints = parsePostmanCollection(postmanCollectionPath);
   const categoriesMap = buildCategoryMap(endpoints);
 
@@ -33,7 +38,28 @@ export function loadEndpointRegistry(postmanCollectionPath: string): EndpointReg
     totalCount: endpoints.length,
   };
 
+  console.log('[EndpointRegistry] ✅ Loaded', endpoints.length, 'endpoints across', categoriesMap.size, 'categories');
+
+  // Log category breakdown
+  const categoryBreakdown = Array.from(categoriesMap.entries())
+    .sort((a, b) => b[1].endpointCount - a[1].endpointCount)
+    .slice(0, 10)
+    .map(([name, cat]) => `  - ${name}: ${cat.endpointCount} endpoints`)
+    .join('\n');
+
+  console.log('[EndpointRegistry] Top categories:\n' + categoryBreakdown);
+
   return registry;
+}
+
+/**
+ * Load all endpoints (alias for loadEndpointRegistry)
+ *
+ * This function emphasizes that ALL endpoints from the Postman collection
+ * are loaded, not just a subset.
+ */
+export function loadAllEndpoints(postmanCollectionPath: string): EndpointRegistry {
+  return loadEndpointRegistry(postmanCollectionPath);
 }
 
 /**
@@ -289,6 +315,121 @@ export function getRegistryStats() {
  */
 export function isRegistryLoaded(): boolean {
   return registry !== null;
+}
+
+/**
+ * Get registry load status with details
+ */
+export function getRegistryStatus(): {
+  loaded: boolean;
+  endpointCount: number;
+  categoryCount: number;
+  categories: string[];
+} {
+  if (!registry) {
+    return {
+      loaded: false,
+      endpointCount: 0,
+      categoryCount: 0,
+      categories: [],
+    };
+  }
+
+  return {
+    loaded: true,
+    endpointCount: registry.totalCount,
+    categoryCount: registry.categories.size,
+    categories: Array.from(registry.categories.keys()).sort(),
+  };
+}
+
+/**
+ * Verify endpoint availability for a tool
+ *
+ * Checks if all required endpoints for a tool are available in the registry.
+ *
+ * @param toolName - Tool name
+ * @param requiredEndpointNames - Array of endpoint names the tool needs
+ * @returns Object with availability status and missing endpoints
+ */
+export function verifyToolEndpoints(
+  _toolName: string,
+  requiredEndpointNames: string[]
+): {
+  available: boolean;
+  missing: string[];
+  found: string[];
+} {
+  const found: string[] = [];
+  const missing: string[] = [];
+
+  for (const endpointName of requiredEndpointNames) {
+    const endpoint = findEndpointByName(endpointName);
+    if (endpoint) {
+      found.push(endpointName);
+    } else {
+      missing.push(endpointName);
+    }
+  }
+
+  return {
+    available: missing.length === 0,
+    missing,
+    found,
+  };
+}
+
+/**
+ * Get detailed registry information
+ *
+ * Returns comprehensive information about loaded endpoints for debugging
+ * and verification purposes.
+ */
+export function getRegistryInfo(): {
+  loaded: boolean;
+  totalEndpoints: number;
+  categories: Array<{ name: string; count: number; subcategories: string[] }>;
+  methods: Record<string, number>;
+  topCategories: Array<{ name: string; count: number }>;
+} {
+  if (!registry) {
+    return {
+      loaded: false,
+      totalEndpoints: 0,
+      categories: [],
+      methods: {},
+      topCategories: [],
+    };
+  }
+
+  // Category details
+  const categories = Array.from(registry.categories.entries())
+    .map(([name, cat]) => ({
+      name,
+      count: cat.endpointCount,
+      subcategories: cat.subcategories,
+    }))
+    .sort((a, b) => b.count - a.count);
+
+  // Method counts
+  const methods: Record<string, number> = {};
+  for (const endpoint of registry.endpoints) {
+    methods[endpoint.method] = (methods[endpoint.method] || 0) + 1;
+  }
+
+  // Top 10 categories
+  const topCategories = categories.slice(0, 10).map((cat) => ({
+    name: cat.name,
+    count: cat.count,
+  }));
+
+  return {
+    loaded: true,
+    totalEndpoints: registry.totalCount,
+    categories,
+    methods,
+    topCategories,
+  };
 }
 
 /**

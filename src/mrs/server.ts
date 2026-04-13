@@ -21,7 +21,7 @@ import {
 import { config } from '../config/index.js';
 import { getAvailableTools } from './tool-registry.js';
 import { executeTool } from './tool-executor.js';
-import { loadEndpointRegistry } from '../catalog/endpoint-registry.js';
+import { loadEndpointRegistry, getRegistryStats } from '../catalog/endpoint-registry.js';
 import { validateAccessToken } from '../auth/access-token-validator.js';
 import { resolveAuthorizationContextForSubject } from '../policy/authorization-context.js';
 import type { AuthorizationContext } from '../types/index.js';
@@ -134,15 +134,30 @@ export async function startMrsServer() {
     }
   );
 
-  // Initialize endpoint registry if enabled
-  if (config.mrs.features.enablePostmanCatalog) {
-    try {
-      const postmanPath = './postman/Okta Governance API.postman_collection.json';
-      loadEndpointRegistry(postmanPath);
-      console.log('[MRS] Loaded Postman endpoint catalog');
-    } catch (error) {
-      console.warn('[MRS] Failed to load Postman catalog:', error);
+  // Initialize endpoint registry (always enabled for production)
+  // This loads ALL 153+ Okta Governance API endpoints from the Postman collection
+  try {
+    const postmanPath = './postman/Okta Governance API.postman_collection.json';
+    const registryInfo = loadEndpointRegistry(postmanPath);
+
+    console.log('[MRS] ✅ Endpoint Registry Loaded:');
+    console.log(`[MRS]    - ${registryInfo.totalCount} endpoints`);
+    console.log(`[MRS]    - ${registryInfo.categories.size} categories`);
+    console.log('[MRS]    - All endpoints available for intelligent tool execution');
+
+    // Log verification
+    const stats = getRegistryStats();
+    if (stats) {
+      console.log('[MRS] Registry Stats:', {
+        total: stats.totalEndpoints,
+        withBody: stats.endpointsWithRequestBody,
+        withExamples: stats.endpointsWithExamples,
+      });
     }
+  } catch (error) {
+    console.error('[MRS] ❌ Failed to load Postman endpoint registry:', error);
+    console.error('[MRS]    Tools requiring endpoint metadata will fail');
+    throw error; // Critical failure - MCP server cannot function without registry
   }
 
   /**
