@@ -895,7 +895,8 @@ ${toolResult}`;
       if (!appId) {
         // No direct appId - need to resolve by name
         // Extract app name (simple heuristic: text after "for")
-        const forMatch = userText.match(/for\s+([^.?!]+)/i);
+        // Note: Include dots in app names (e.g., "Salesforce.com")
+        const forMatch = userText.match(/for\s+([^?!]+)/i);
         if (forMatch) {
           const candidateAppName = forMatch[1].trim();
           console.log('[Chat] Resolving app name:', candidateAppName);
@@ -1004,8 +1005,9 @@ ${toolResult}`;
 
       if (!appId) {
         // Try to extract app name from various patterns
-        const toMatch = userText.match(/to\s+([^.?!]+)/i);
-        const forMatch = userText.match(/for\s+([^.?!]+)/i);
+        // Note: Include dots in app names (e.g., "Salesforce.com")
+        const toMatch = userText.match(/to\s+([^?!]+)/i);
+        const forMatch = userText.match(/for\s+([^?!]+)/i);
         const candidateAppName = (toMatch || forMatch)?.[1]?.trim();
 
         if (candidateAppName) {
@@ -1133,8 +1135,9 @@ To cancel, please reply with "cancel".
 
       if (!appId) {
         // Try to extract app name from various patterns
-        const forMatch = userText.match(/for\s+([^.?!]+)/i);
-        const onMatch = userText.match(/on\s+([^.?!]+)/i);
+        // Note: Include dots in app names (e.g., "Salesforce.com")
+        const forMatch = userText.match(/for\s+([^?!]+)/i);
+        const onMatch = userText.match(/on\s+([^?!]+)/i);
         const candidateAppName = (forMatch || onMatch)?.[1]?.trim();
 
         if (candidateAppName) {
