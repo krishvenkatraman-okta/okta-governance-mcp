@@ -44,6 +44,18 @@ export interface SessionData {
     action: string;
     [key: string]: unknown;
   };
+
+  // Pending app resolution (for disambiguation flow)
+  pendingAppResolution?: {
+    type: 'app_resolution';
+    intent: string; // tool name or operation type
+    originalQuery: string;
+    candidates: Array<{
+      id: string;
+      label: string;
+      name: string;
+    }>;
+  };
 }
 
 const sessionOptions = {

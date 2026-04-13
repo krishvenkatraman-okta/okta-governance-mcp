@@ -26,9 +26,9 @@ interface ChatInterfaceProps {
 
 const SUGGESTED_PROMPTS = [
   "What governance-enabled apps can I manage?",
-  "Generate activity report for ServiceNow",
-  "Create review campaign for Salesforce",
-  "Apply label high-risk to Salesforce",
+  "Show me apps I can create campaigns for",
+  "How do I generate an activity report?",
+  "What governance tools are available?",
 ];
 
 export default function ChatInterface({ onClose }: ChatInterfaceProps) {

@@ -232,7 +232,12 @@ function extractAppId(message: string): string | null {
 function resolveAppByName(
   appName: string,
   toolResult: string
-): { appId: string | null; matches: string[]; appNames: string[] } {
+): {
+  appId: string | null;
+  matches: string[];
+  appNames: string[];
+  candidateApps: Array<{ id: string; label: string; name: string }>;
+} {
   try {
     console.log('[DEBUG] Raw app query:', appName);
     console.log('[DEBUG] Raw tool result (first 500 chars):', toolResult.substring(0, 500));
@@ -243,7 +248,7 @@ function resolveAppByName(
       parsed = JSON.parse(toolResult);
     } catch (parseError) {
       console.error('[DEBUG] JSON parse failed:', parseError);
-      return { appId: null, matches: [], appNames: [] };
+      return { appId: null, matches: [], appNames: [], candidateApps: [] };
     }
 
     // Extract apps array from various possible structures
@@ -260,7 +265,7 @@ function resolveAppByName(
       apps = parsed.data;
     } else {
       console.error('[DEBUG] Could not find apps array in parsed result. Keys:', Object.keys(parsed));
-      return { appId: null, matches: [], appNames: [] };
+      return { appId: null, matches: [], appNames: [], candidateApps: [] };
     }
 
     console.log('[DEBUG] Parsed apps array length:', apps.length);
@@ -268,7 +273,7 @@ function resolveAppByName(
 
     if (apps.length === 0) {
       console.log('[DEBUG] Apps array is empty');
-      return { appId: null, matches: [], appNames: [] };
+      return { appId: null, matches: [], appNames: [], candidateApps: [] };
     }
 
     // Sanitize app name: trim and strip quotes
@@ -294,6 +299,7 @@ function resolveAppByName(
         appId: matchedApps[0].id,
         matches: [matchedApps[0].label],
         appNames: [],
+        candidateApps: [],
       };
     }
 
@@ -305,6 +311,7 @@ function resolveAppByName(
         appId: matchedApps[0].id,
         matches: [matchedApps[0].label],
         appNames: [],
+        candidateApps: [],
       };
     }
 
@@ -319,6 +326,7 @@ function resolveAppByName(
         appId: matchedApps[0].id,
         matches: [matchedApps[0].label],
         appNames: [],
+        candidateApps: [],
       };
     }
 
@@ -332,6 +340,7 @@ function resolveAppByName(
         appId: matchedApps[0].id,
         matches: [matchedApps[0].label],
         appNames: [],
+        candidateApps: [],
       };
     }
 
@@ -351,6 +360,7 @@ function resolveAppByName(
         appId: matchedApps[0].id,
         matches: [matchedApps[0].label],
         appNames: [],
+        candidateApps: [],
       };
     } else if (matchedApps.length > 1) {
       console.log('[DEBUG] Multiple matches found:', matchedApps.length);
@@ -358,14 +368,19 @@ function resolveAppByName(
         appId: null,
         matches: [],
         appNames: matchedApps.map((app: any) => app.label),
+        candidateApps: matchedApps.map((app: any) => ({
+          id: app.id,
+          label: app.label,
+          name: app.name,
+        })),
       };
     }
 
     console.log('[DEBUG] No matches found after all strategies');
-    return { appId: null, matches: [], appNames: [] };
+    return { appId: null, matches: [], appNames: [], candidateApps: [] };
   } catch (error) {
     console.error('[DEBUG] Error in resolveAppByName:', error);
-    return { appId: null, matches: [], appNames: [] };
+    return { appId: null, matches: [], appNames: [], candidateApps: [] };
   }
 }
 
@@ -550,6 +565,90 @@ ${toolResult}`;
       }
     }
 
+    // Check for pending app resolution (disambiguation follow-up)
+    if (session.pendingAppResolution) {
+      console.log('[Chat] Pending app resolution detected:', session.pendingAppResolution.intent);
+
+      const pending = session.pendingAppResolution;
+      const userReply = userText.trim();
+
+      // Match user reply against stored candidates only
+      const normalize = (s: string) => s.toLowerCase().replace(/[._\s-]/g, '');
+      const normalizedReply = normalize(userReply);
+
+      let selectedApp: { id: string; label: string; name: string } | null = null;
+
+      // 1. Exact label match
+      for (const candidate of pending.candidates) {
+        if (candidate.label === userReply) {
+          selectedApp = candidate;
+          break;
+        }
+      }
+
+      // 2. Exact name match
+      if (!selectedApp) {
+        for (const candidate of pending.candidates) {
+          if (candidate.name === userReply) {
+            selectedApp = candidate;
+            break;
+          }
+        }
+      }
+
+      // 3. Normalized match
+      if (!selectedApp) {
+        for (const candidate of pending.candidates) {
+          if (
+            normalize(candidate.label) === normalizedReply ||
+            normalize(candidate.name) === normalizedReply
+          ) {
+            selectedApp = candidate;
+            break;
+          }
+        }
+      }
+
+      if (selectedApp) {
+        // Clear pending resolution
+        session.pendingAppResolution = undefined;
+        await session.save();
+
+        console.log('[Chat] App resolved:', selectedApp.label);
+
+        // Execute intended tool deterministically
+        let toolResult: string;
+        try {
+          toolResult = await executeTool(
+            pending.intent,
+            { appId: selectedApp.id },
+            session.mcpAccessToken!,
+            config.mcp.endpoints.toolsCall
+          );
+
+          return NextResponse.json({
+            message: `✅ **${pending.intent.replace(/_/g, ' ')}** for **${selectedApp.label}**\n\n${toolResult}`,
+            toolCalls: 1,
+          });
+        } catch (error) {
+          session.pendingAppResolution = undefined;
+          await session.save();
+
+          return NextResponse.json({
+            message: `Error executing ${pending.intent}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+          });
+        }
+      } else {
+        // No match found - ask again or clear
+        session.pendingAppResolution = undefined;
+        await session.save();
+
+        return NextResponse.json({
+          message: `"${userReply}" does not match any of the candidates. Please try again with the exact app name from the list, or ask a new question.`,
+        });
+      }
+    }
+
     // Check for tool discovery patterns
     const isToolDiscovery =
       lowerText.includes('list all available tools') ||
@@ -605,7 +704,7 @@ ${toolResult}`;
             config.mcp.endpoints.toolsCall
           );
 
-          const { appId: resolved, matches, appNames } = resolveAppByName(
+          const { appId: resolved, matches, appNames, candidateApps } = resolveAppByName(
             candidateAppName,
             appsResult
           );
@@ -615,9 +714,21 @@ ${toolResult}`;
             resolvedAppName = matches[0];
             console.log('[Chat] Resolved to appId:', appId);
           } else if (appNames.length > 1) {
-            // Multiple matches - clarification needed
+            // Multiple matches - store in session for deterministic follow-up
+            const toolName = isActivityReport
+              ? 'generate_app_activity_report'
+              : 'generate_access_review_candidates';
+
+            session.pendingAppResolution = {
+              type: 'app_resolution',
+              intent: toolName,
+              originalQuery: userText,
+              candidates: candidateApps,
+            };
+            await session.save();
+
             return NextResponse.json({
-              message: `Multiple applications match "${candidateAppName}":\n${appNames.map((n) => `- ${n}`).join('\n')}\n\nPlease specify which application you mean.`,
+              message: `Multiple applications match "${candidateAppName}":\n${appNames.map((n) => `- ${n}`).join('\n')}\n\nPlease reply with the exact application name you want.`,
             });
           } else {
             // No match
@@ -704,7 +815,7 @@ ${toolResult}`;
             config.mcp.endpoints.toolsCall
           );
 
-          const { appId: resolved, matches, appNames } = resolveAppByName(
+          const { appId: resolved, matches, appNames, candidateApps } = resolveAppByName(
             candidateAppName,
             appsResult
           );
@@ -714,8 +825,10 @@ ${toolResult}`;
             resolvedAppName = matches[0];
             console.log('[Chat] Resolved to appId:', appId);
           } else if (appNames.length > 1) {
+            // For labels, we can't proceed yet because we need to extract label name from original query
+            // We'll handle labels differently - just return clarification without storing
             return NextResponse.json({
-              message: `Multiple applications match "${candidateAppName}":\n${appNames.map((n) => `- ${n}`).join('\n')}\n\nPlease specify which application.`,
+              message: `Multiple applications match "${candidateAppName}":\n${appNames.map((n) => `- ${n}`).join('\n')}\n\nPlease specify which application and repeat the label operation.`,
             });
           } else {
             return NextResponse.json({
@@ -831,7 +944,7 @@ To cancel, please reply with "cancel".
             config.mcp.endpoints.toolsCall
           );
 
-          const { appId: resolved, matches, appNames } = resolveAppByName(
+          const { appId: resolved, matches, appNames, candidateApps } = resolveAppByName(
             candidateAppName,
             appsResult
           );
@@ -841,8 +954,10 @@ To cancel, please reply with "cancel".
             resolvedAppName = matches[0];
             console.log('[Chat] Resolved to appId:', appId);
           } else if (appNames.length > 1) {
+            // For campaigns, we can't proceed yet because we need campaign parameters from original query
+            // Ask user to repeat the full operation with specific app name
             return NextResponse.json({
-              message: `Multiple applications match "${candidateAppName}":\n${appNames.map((n) => `- ${n}`).join('\n')}\n\nPlease specify which application.`,
+              message: `Multiple applications match "${candidateAppName}":\n${appNames.map((n) => `- ${n}`).join('\n')}\n\nPlease specify which application and repeat the campaign operation.`,
             });
           } else {
             return NextResponse.json({
