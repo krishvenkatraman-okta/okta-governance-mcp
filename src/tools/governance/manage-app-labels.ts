@@ -7,6 +7,7 @@
 
 import { findEndpointByName } from '../../catalog/endpoint-registry.js';
 import { governanceClient } from '../../okta/governance-client.js';
+import { appsClient } from '../../okta/apps-client.js';
 import { createJsonResponse, createErrorResponse } from '../types.js';
 import type { AuthorizationContext, McpToolCallResponse, ParsedEndpoint } from '../../types/index.js';
 import type { ToolDefinition } from '../types.js';
@@ -54,6 +55,16 @@ async function callGovernanceAPI<T>(
 ): Promise<T> {
   let path = endpoint.normalizedPath;
 
+  // Strip /governance/api/v1 prefix if present (governance-client adds it)
+  // The Postman collection includes full paths like /governance/api/v1/labels
+  // But governanceClient.request() expects relative paths from the governance API base
+  path = path.replace(/^\/governance\/api\/v1/, '');
+
+  // Ensure path starts with /
+  if (!path.startsWith('/')) {
+    path = '/' + path;
+  }
+
   // Replace path variables
   if (options.pathParams) {
     for (const [key, value] of Object.entries(options.pathParams)) {
@@ -70,7 +81,8 @@ async function callGovernanceAPI<T>(
   console.log('[ManageLabels] Calling API:', {
     method: endpoint.method,
     path,
-    endpoint: endpoint.name,
+    fullEndpoint: `${endpoint.method} ${endpoint.normalizedPath}`,
+    endpointName: endpoint.name,
   });
 
   return await governanceClient.request<T>(path, {
@@ -285,6 +297,86 @@ async function getResourceLabels(appId: string, _context: AuthorizationContext):
 }
 
 /**
+ * Validate app exists and is governance-enabled
+ */
+async function validateApp(appId: string, context: AuthorizationContext): Promise<{
+  valid: boolean;
+  app?: any;
+  error?: string;
+}> {
+  try {
+    console.log('[ManageLabels] Validating app:', { appId, subject: context.subject });
+
+    // Step 1: Check if app exists
+    const app = await appsClient.getById(appId);
+
+    if (!app) {
+      return {
+        valid: false,
+        error: `Application ${appId} not found`,
+      };
+    }
+
+    console.log('[ManageLabels] App found:', {
+      id: app.id,
+      name: app.name,
+      label: app.label,
+      status: app.status,
+    });
+
+    // Step 2: Check if app is governance-enabled
+    // Apps must have Entitlement Management (emOptInStatus) enabled to support labels
+    const settings = (app as any).settings;
+    const emOptInStatus = settings?.emOptInStatus;
+
+    if (emOptInStatus !== 'ENABLED') {
+      return {
+        valid: false,
+        app,
+        error: `Application '${app.label}' does not have Entitlement Management enabled. Current status: ${emOptInStatus || 'DISABLED'}. Labels can only be applied to governance-enabled applications.`,
+      };
+    }
+
+    console.log('[ManageLabels] App is governance-enabled:', {
+      id: app.id,
+      label: app.label,
+      emOptInStatus,
+    });
+
+    // Step 3: Check authorization (if user is App Admin, verify app is in their targets)
+    if (!context.roles.superAdmin && !context.roles.orgAdmin) {
+      if (context.roles.appAdmin) {
+        const hasAccess = context.targets.apps.includes(appId);
+        if (!hasAccess) {
+          return {
+            valid: false,
+            app,
+            error: `You do not have permission to manage labels for application '${app.label}'. This app is not in your role targets.`,
+          };
+        }
+      } else {
+        return {
+          valid: false,
+          app,
+          error: `You do not have permission to manage labels. Required role: APP_ADMIN, SUPER_ADMIN, or ORG_ADMIN.`,
+        };
+      }
+    }
+
+    return {
+      valid: true,
+      app,
+    };
+  } catch (error) {
+    console.error('[ManageLabels] App validation failed:', error);
+    return {
+      valid: false,
+      error: `Failed to validate app: ${error instanceof Error ? error.message : 'Unknown error'}`,
+    };
+  }
+}
+
+/**
  * Intelligent workflow: Apply label (create if needed)
  */
 async function applyLabelWorkflow(
@@ -298,9 +390,26 @@ async function applyLabelWorkflow(
   console.log('[ManageLabels] Executing apply workflow:', {
     appId: input.appId,
     labelName: input.labelName,
+    subject: context.subject,
   });
 
   try {
+    // Step 0: Validate app exists and is governance-enabled
+    console.log('[ManageLabels] Step 0: Validating application');
+    const validation = await validateApp(input.appId, context);
+
+    if (!validation.valid) {
+      console.error('[ManageLabels] App validation failed:', validation.error);
+      return createErrorResponse(validation.error || 'App validation failed');
+    }
+
+    const app = validation.app;
+    console.log('[ManageLabels] App validated successfully:', {
+      id: app.id,
+      label: app.label,
+      governanceEnabled: true,
+    });
+
     // Step 1: List existing labels
     console.log('[ManageLabels] Step 1: Checking if label exists');
     const labels = await listLabels(context);
@@ -319,19 +428,29 @@ async function applyLabelWorkflow(
     console.log('[ManageLabels] Step 3: Assigning label to app');
     const assignment = await assignLabel(label.id, input.appId, context);
 
+    console.log('[ManageLabels] ✅ Apply workflow completed successfully');
+
     return createJsonResponse({
-      status: 'success',
+      success: true,
       action: 'apply',
+      appId: input.appId,
+      appLabel: app.label,
+      appName: app.name,
       label: {
         id: label.id,
         name: label.name,
         description: label.description,
       },
-      app: {
-        id: input.appId,
-      },
       assignment,
-      message: `✅ Applied label '${label.name}' to application ${input.appId}`,
+      message: `✅ Successfully applied label '${label.name}' to application '${app.label}'`,
+      details: {
+        labelCreated: !labels.find((l) => l.name === input.labelName),
+        labelId: label.id,
+        labelName: label.name,
+        appId: input.appId,
+        appLabel: app.label,
+        timestamp: new Date().toISOString(),
+      },
     });
   } catch (error) {
     console.error('[ManageLabels] Apply workflow failed:', error);
