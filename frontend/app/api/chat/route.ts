@@ -280,6 +280,14 @@ function resolveAppByName(
     const sanitizedAppName = appName.trim().replace(/^["']|["']$/g, '');
     console.log('[DEBUG] Sanitized app query:', sanitizedAppName);
 
+    // ========== DEBUG: Show all available apps ==========
+    console.log('[DEBUG] 🔍 ALL AVAILABLE APPS IN LIST:');
+    apps.forEach((app: any, idx: number) => {
+      console.log(`[DEBUG]   ${idx + 1}. label="${app.label}" name="${app.name}" id="${app.id}"`);
+    });
+    console.log(`[DEBUG] 🎯 SEARCHING FOR: "${sanitizedAppName}"`);
+    console.log('[DEBUG] ========================================');
+
     // ========== EXACT MATCHING STRATEGIES (HIGH PRIORITY) ==========
 
     let matchedApps: any[] = [];
@@ -287,6 +295,7 @@ function resolveAppByName(
     // Strategy 1: Exact label match (case-sensitive)
     console.log('[DEBUG] Trying exact label match (case-sensitive)...');
     matchedApps = apps.filter((app: any) => app.label === sanitizedAppName);
+    console.log(`[DEBUG] Strategy 1 result: ${matchedApps.length} matches`);
     if (matchedApps.length === 1) {
       console.log('[DEBUG] ✅ Match found (exact label):', matchedApps[0].label);
       return {
@@ -309,10 +318,12 @@ function resolveAppByName(
         })),
       };
     }
+    console.log('[DEBUG] Strategy 1: No exact label match, continuing...');
 
     // Strategy 2: Exact name match (case-sensitive)
     console.log('[DEBUG] Trying exact name match (case-sensitive)...');
     matchedApps = apps.filter((app: any) => app.name === sanitizedAppName);
+    console.log(`[DEBUG] Strategy 2 result: ${matchedApps.length} matches`);
     if (matchedApps.length === 1) {
       console.log('[DEBUG] ✅ Match found (exact name):', matchedApps[0].label);
       return {
@@ -335,12 +346,14 @@ function resolveAppByName(
         })),
       };
     }
+    console.log('[DEBUG] Strategy 2: No exact name match, continuing...');
 
     // Strategy 3: Exact label match (case-INsensitive)
     console.log('[DEBUG] Trying exact label match (case-insensitive)...');
     matchedApps = apps.filter((app: any) =>
       (app.label || '').toLowerCase() === sanitizedAppName.toLowerCase()
     );
+    console.log(`[DEBUG] Strategy 3 result: ${matchedApps.length} matches`);
     if (matchedApps.length === 1) {
       console.log('[DEBUG] ✅ Match found (exact label, case-insensitive):', matchedApps[0].label);
       return {
@@ -363,12 +376,14 @@ function resolveAppByName(
         })),
       };
     }
+    console.log('[DEBUG] Strategy 3: No exact label match (case-insensitive), continuing...');
 
     // Strategy 4: Exact name match (case-INsensitive)
     console.log('[DEBUG] Trying exact name match (case-insensitive)...');
     matchedApps = apps.filter((app: any) =>
       (app.name || '').toLowerCase() === sanitizedAppName.toLowerCase()
     );
+    console.log(`[DEBUG] Strategy 4 result: ${matchedApps.length} matches`);
     if (matchedApps.length === 1) {
       console.log('[DEBUG] ✅ Match found (exact name, case-insensitive):', matchedApps[0].label);
       return {
@@ -383,16 +398,25 @@ function resolveAppByName(
       return {
         appId: null,
         matches: [],
-        appNames: matchedApps.map((app: any) => app.label),
-        candidateApps: matchedApps.map((app: any) => ({
+        appNames: matchedApps.map((app: any) => ({
           id: app.id,
           label: app.label,
           name: app.name,
         })),
       };
     }
+    console.log('[DEBUG] Strategy 4: No exact name match (case-insensitive), continuing...');
 
     // ========== PARTIAL MATCHING STRATEGIES (LOWER PRIORITY) ==========
+
+    console.log('[DEBUG] ⚠️ ALL EXACT MATCHING STRATEGIES FAILED');
+    console.log('[DEBUG] Exact match strategies tried:');
+    console.log('[DEBUG]   1. Exact label (case-sensitive): 0 matches');
+    console.log('[DEBUG]   2. Exact name (case-sensitive): 0 matches');
+    console.log('[DEBUG]   3. Exact label (case-insensitive): 0 matches');
+    console.log('[DEBUG]   4. Exact name (case-insensitive): 0 matches');
+    console.log('[DEBUG] Now falling back to PARTIAL matching...');
+    console.log('[DEBUG] ========================================');
 
     // Strategy 5: Case-insensitive partial label match (ONLY if exact didn't match)
     console.log('[DEBUG] Trying partial label match...');
