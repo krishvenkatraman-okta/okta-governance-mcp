@@ -278,7 +278,14 @@ function resolveAppByName(
 
     // Sanitize app name: trim and strip quotes
     const sanitizedAppName = appName.trim().replace(/^["']|["']$/g, '');
-    console.log('[DEBUG] Sanitized app query:', sanitizedAppName);
+
+    console.log('[DEBUG] ═══════════════════════════════════════════════════════');
+    console.log('[DEBUG] 🔬 APP NAME RESOLUTION DIAGNOSTIC');
+    console.log('[DEBUG] ═══════════════════════════════════════════════════════');
+    console.log('[DEBUG] Raw input:', appName);
+    console.log('[DEBUG] Sanitized:', sanitizedAppName);
+    console.log('[DEBUG] Search length:', sanitizedAppName.length, 'characters');
+    console.log('[DEBUG] Total apps available:', apps.length);
 
     // ========== DEBUG: Show all available apps ==========
     console.log('[DEBUG] 🔍 ALL AVAILABLE APPS IN LIST:');
@@ -288,16 +295,33 @@ function resolveAppByName(
     console.log(`[DEBUG] 🎯 SEARCHING FOR: "${sanitizedAppName}"`);
     console.log('[DEBUG] ========================================');
 
+    // ========== DEBUG: Show apps containing search substring ==========
+    const searchKeyword = sanitizedAppName.toLowerCase().split(/[\s.]+/)[0]; // Extract first word
+    const relatedApps = apps.filter((app: any) =>
+      (app.label || '').toLowerCase().includes(searchKeyword)
+    );
+    if (relatedApps.length > 0) {
+      console.log(`[DEBUG] 📋 Apps containing "${searchKeyword}":`);
+      relatedApps.forEach((app: any, idx: number) => {
+        console.log(`[DEBUG]   ${idx + 1}. label="${app.label}"`);
+        console.log(`[DEBUG]      name="${app.name}"`);
+        console.log(`[DEBUG]      Exact label match? ${app.label === sanitizedAppName ? '✅ YES' : '❌ NO'}`);
+        console.log(`[DEBUG]      Case-insensitive label match? ${(app.label || '').toLowerCase() === sanitizedAppName.toLowerCase() ? '✅ YES' : '❌ NO'}`);
+      });
+      console.log('[DEBUG] ========================================');
+    }
+
     // ========== EXACT MATCHING STRATEGIES (HIGH PRIORITY) ==========
 
     let matchedApps: any[] = [];
 
     // Strategy 1: Exact label match (case-sensitive)
-    console.log('[DEBUG] Trying exact label match (case-sensitive)...');
+    console.log('[DEBUG] 🔍 Strategy 1: Exact label match (case-sensitive)');
+    console.log(`[DEBUG]    Comparing: app.label === "${sanitizedAppName}"`);
     matchedApps = apps.filter((app: any) => app.label === sanitizedAppName);
-    console.log(`[DEBUG] Strategy 1 result: ${matchedApps.length} matches`);
+    console.log(`[DEBUG]    Result: ${matchedApps.length} matches`);
     if (matchedApps.length === 1) {
-      console.log('[DEBUG] ✅ Match found (exact label):', matchedApps[0].label);
+      console.log('[DEBUG] ✅ SUCCESS - Found exact match:', matchedApps[0].label);
       return {
         appId: matchedApps[0].id,
         matches: [matchedApps[0].label],
@@ -306,7 +330,11 @@ function resolveAppByName(
       };
     }
     if (matchedApps.length > 1) {
-      console.log('[DEBUG] Multiple exact label matches:', matchedApps.map((a: any) => a.label));
+      console.log('[DEBUG] ⚠️ MULTIPLE EXACT MATCHES FOUND:');
+      matchedApps.forEach((app: any, idx: number) => {
+        console.log(`[DEBUG]      ${idx + 1}. "${app.label}" (id: ${app.id})`);
+      });
+      console.log('[DEBUG] ❌ Returning ambiguity - user must choose');
       return {
         appId: null,
         matches: [],
@@ -318,7 +346,7 @@ function resolveAppByName(
         })),
       };
     }
-    console.log('[DEBUG] Strategy 1: No exact label match, continuing...');
+    console.log('[DEBUG] ❌ Strategy 1 failed: No exact label match, continuing...');
 
     // Strategy 2: Exact name match (case-sensitive)
     console.log('[DEBUG] Trying exact name match (case-sensitive)...');
@@ -419,13 +447,15 @@ function resolveAppByName(
     console.log('[DEBUG] ========================================');
 
     // Strategy 5: Case-insensitive partial label match (ONLY if exact didn't match)
-    console.log('[DEBUG] Trying partial label match...');
+    console.log('[DEBUG] 🔍 Strategy 5: Partial label match (case-insensitive)');
     const lowerAppName = sanitizedAppName.toLowerCase();
+    console.log(`[DEBUG]    Comparing: app.label.toLowerCase().includes("${lowerAppName}")`);
     matchedApps = apps.filter((app: any) =>
       (app.label || '').toLowerCase().includes(lowerAppName)
     );
+    console.log(`[DEBUG]    Result: ${matchedApps.length} matches`);
     if (matchedApps.length === 1) {
-      console.log('[DEBUG] ✅ Match found (partial label):', matchedApps[0].label);
+      console.log('[DEBUG] ✅ SUCCESS - Found partial match:', matchedApps[0].label);
       return {
         appId: matchedApps[0].id,
         matches: [matchedApps[0].label],
@@ -434,7 +464,13 @@ function resolveAppByName(
       };
     }
     if (matchedApps.length > 1) {
-      console.log('[DEBUG] Multiple matches found (partial label):', matchedApps.length, matchedApps.map((a: any) => a.label));
+      console.log('[DEBUG] ⚠️ MULTIPLE PARTIAL MATCHES FOUND:');
+      matchedApps.forEach((app: any, idx: number) => {
+        console.log(`[DEBUG]      ${idx + 1}. "${app.label}"`);
+        console.log(`[DEBUG]         Why matched: "${app.label.toLowerCase()}" contains "${lowerAppName}"`);
+      });
+      console.log('[DEBUG] ❌ Returning ambiguity - this is likely the problem!');
+      console.log('[DEBUG] DIAGNOSIS: Partial matching is too greedy. Search term matches multiple apps.');
       return {
         appId: null,
         matches: [],
@@ -518,7 +554,12 @@ function resolveAppByName(
     }
 
     // No match found
-    console.log('[DEBUG] No matches found for:', sanitizedAppName);
+    console.log('[DEBUG] ═══════════════════════════════════════════════════════');
+    console.log('[DEBUG] ❌ FINAL RESULT: NO MATCHES FOUND');
+    console.log('[DEBUG] ═══════════════════════════════════════════════════════');
+    console.log('[DEBUG] Search term:', sanitizedAppName);
+    console.log('[DEBUG] All strategies failed - no app matched');
+    console.log('[DEBUG] Returning: appId=null, ambiguity');
     return { appId: null, matches: [], appNames: [], candidateApps: [] };
   } catch (error) {
     console.error('[DEBUG] Error in resolveAppByName:', error);
