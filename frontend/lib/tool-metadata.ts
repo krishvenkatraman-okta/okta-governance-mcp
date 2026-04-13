@@ -134,18 +134,18 @@ export const TOOL_METADATA: Record<string, ToolMetadata> = {
 
   manage_app_labels: {
     name: 'manage_app_labels',
-    description: 'Manage governance labels for applications (create, apply, remove labels)',
+    description: 'Intelligently manage governance labels for applications (create, apply, remove, list, verify)',
     category: 'governance',
     type: 'write',
-    implementationStatus: 'stub',
+    implementationStatus: 'implemented',
     requirements: {
       scopes: ['okta.governance.labels.read', 'okta.governance.labels.manage'],
       capabilities: ['labels.manage.owned', 'labels.manage.all'],
       roles: ['APP_ADMIN', 'SUPER_ADMIN'],
       requiresTargetResource: true,
     },
-    notes: 'Requires confirmation before execution. Backend currently stubbed.',
-    exampleUsage: 'Apply label high-risk to Salesforce.com',
+    notes: 'Uses Postman endpoint registry for accurate API calls. Smart workflow creates labels if needed.',
+    exampleUsage: 'Create a label called high-risk for Salesforce.com',
   },
 
   manage_app_campaigns: {
