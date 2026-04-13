@@ -31,9 +31,9 @@ The tool intelligently finds and uses these endpoints:
 |--------|--------------|--------|------|
 | List | "List all labels" | GET | `/governance/api/v1/labels` |
 | Create | "Create a label" | POST | `/governance/api/v1/labels` |
-| Apply | "Assign the labels to resources" | POST | `/governance/api/v1/labels/:labelId/assignments` |
-| Remove | "Unassign a label from a resource" | DELETE | `/governance/api/v1/labels/:labelId/assignments/:resourceId` |
-| Verify | "Get labels assigned to a resource" | GET | `/governance/api/v1/resources/:resourceId/labels` |
+| Apply | "Assign the labels to resources" | POST | `/governance/api/v1/resource-labels/assign` |
+| Remove | "Remove the labels from resources" | POST | `/governance/api/v1/resource-labels/unassign` |
+| Verify | "List all labeled resources" | GET | `/governance/api/v1/resource-labels` |
 
 ### 3. Dynamic API Calls
 

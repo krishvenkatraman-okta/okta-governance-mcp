@@ -168,9 +168,9 @@ async function callGovernanceAPI(endpoint, options) {
 |--------|----------|--------|------|--------|
 | List | `List all labels` | GET | `/labels` | `okta.governance.labels.read` |
 | Create | `Create a label` | POST | `/labels` | `okta.governance.labels.manage` |
-| Apply | `Assign the labels to resources` | POST | `/labels/:labelId/assignments` | `okta.governance.labels.manage` |
-| Remove | `Unassign a label from a resource` | DELETE | `/labels/:labelId/assignments/:resourceId` | `okta.governance.labels.manage` |
-| Verify | `Get labels assigned to a resource` | GET | `/resources/:resourceId/labels` | `okta.governance.labels.read` |
+| Apply | `Assign the labels to resources` | POST | `/resource-labels/assign` | `okta.governance.labels.manage` |
+| Remove | `Remove the labels from resources` | POST | `/resource-labels/unassign` | `okta.governance.labels.manage` |
+| Verify | `List all labeled resources` | GET | `/resource-labels` | `okta.governance.labels.read` |
 
 **Full URLs constructed:**
 ```

@@ -97,11 +97,11 @@ verifyToolEndpoints(toolName, requiredNames): { available, missing, found }
 | List all labels | GET | `/labels` | ✅ Used |
 | Create a label | POST | `/labels` | ✅ Used |
 | Retrieve a label | GET | `/labels/:labelId` | Available |
-| Update a label | PUT | `/labels/:labelId` | Available |
+| Update a label | PATCH | `/labels/:labelId` | Available |
 | Delete a label | DELETE | `/labels/:labelId` | Available |
-| Assign the labels to resources | POST | `/labels/:labelId/assignments` | ✅ Used |
-| Unassign a label from a resource | DELETE | `/labels/:labelId/assignments/:resourceId` | ✅ Used |
-| Get labels assigned to a resource | GET | `/resources/:resourceId/labels` | ✅ Used |
+| List all labeled resources | GET | `/resource-labels` | ✅ Used |
+| Assign the labels to resources | POST | `/resource-labels/assign` | ✅ Used |
+| Remove the labels from resources | POST | `/resource-labels/unassign` | ✅ Used |
 
 **Usage in code:**
 ```typescript

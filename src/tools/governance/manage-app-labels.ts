@@ -240,7 +240,7 @@ async function removeLabel(
   appId: string,
   _context: AuthorizationContext
 ): Promise<void> {
-  const endpoint = findEndpointByName('Unassign a label from a resource');
+  const endpoint = findEndpointByName('Remove the labels from resources');
 
   if (!endpoint) {
     throw new Error('Label removal endpoint not found in registry');
@@ -269,7 +269,7 @@ async function removeLabel(
  * Get labels assigned to a resource
  */
 async function getResourceLabels(appId: string, _context: AuthorizationContext): Promise<Label[]> {
-  const endpoint = findEndpointByName('Get labels assigned to a resource');
+  const endpoint = findEndpointByName('List all labeled resources');
 
   if (!endpoint) {
     throw new Error('Resource labels endpoint not found in registry');
