@@ -406,34 +406,55 @@ function resolveAppByName(
     }
     console.log('[DEBUG] Strategy 3: No exact label match (case-insensitive), continuing...');
 
-    // Strategy 4: Exact name match (case-INsensitive)
-    console.log('[DEBUG] Trying exact name match (case-insensitive)...');
-    matchedApps = apps.filter((app: any) =>
-      (app.name || '').toLowerCase() === sanitizedAppName.toLowerCase()
-    );
-    console.log(`[DEBUG] Strategy 4 result: ${matchedApps.length} matches`);
-    if (matchedApps.length === 1) {
-      console.log('[DEBUG] ✅ Match found (exact name, case-insensitive):', matchedApps[0].label);
-      return {
-        appId: matchedApps[0].id,
-        matches: [matchedApps[0].label],
-        appNames: [],
-        candidateApps: [],
-      };
+    // Strategy 4: Exact name match (case-INsensitive) - ONLY if input looks like an app name
+    // Skip this strategy if input looks like a label (has uppercase or spaces)
+    // App names are typically lowercase with underscores (e.g., "salesforce", "box_admin")
+    const looksLikeAppName =
+      sanitizedAppName === sanitizedAppName.toLowerCase() && // All lowercase
+      !sanitizedAppName.includes(' '); // No spaces
+
+    if (looksLikeAppName) {
+      console.log('[DEBUG] 🔍 Strategy 4: Exact name match (case-insensitive)');
+      console.log('[DEBUG]    Input looks like an app name (lowercase, no spaces)');
+      console.log(`[DEBUG]    Comparing: app.name.toLowerCase() === "${sanitizedAppName.toLowerCase()}"`);
+      matchedApps = apps.filter((app: any) =>
+        (app.name || '').toLowerCase() === sanitizedAppName.toLowerCase()
+      );
+      console.log(`[DEBUG]    Result: ${matchedApps.length} matches`);
+      if (matchedApps.length === 1) {
+        console.log('[DEBUG] ✅ SUCCESS - Found exact name match:', matchedApps[0].label);
+        return {
+          appId: matchedApps[0].id,
+          matches: [matchedApps[0].label],
+          appNames: [],
+          candidateApps: [],
+        };
+      }
+      if (matchedApps.length > 1) {
+        console.log('[DEBUG] ⚠️ MULTIPLE EXACT NAME MATCHES:');
+        matchedApps.forEach((app: any, idx: number) => {
+          console.log(`[DEBUG]      ${idx + 1}. "${app.label}" (name: ${app.name})`);
+        });
+        return {
+          appId: null,
+          matches: [],
+          appNames: matchedApps.map((app: any) => app.label),
+          candidateApps: matchedApps.map((app: any) => ({
+            id: app.id,
+            label: app.label,
+            name: app.name,
+          })),
+        };
+      }
+      console.log('[DEBUG] ❌ Strategy 4 failed: No exact name match');
+    } else {
+      console.log('[DEBUG] ⏭️  Strategy 4: SKIPPED');
+      console.log('[DEBUG]    Reason: Input looks like a LABEL, not an app name');
+      console.log(`[DEBUG]    - Has uppercase? ${sanitizedAppName !== sanitizedAppName.toLowerCase() ? '✅ YES' : '❌ NO'}`);
+      console.log(`[DEBUG]    - Has spaces? ${sanitizedAppName.includes(' ') ? '✅ YES' : '❌ NO'}`);
+      console.log('[DEBUG]    App names are typically lowercase with underscores (e.g., "salesforce", "box_admin")');
+      console.log('[DEBUG]    Skipping name matching to avoid false matches');
     }
-    if (matchedApps.length > 1) {
-      console.log('[DEBUG] Multiple exact name matches (case-insensitive):', matchedApps.map((a: any) => a.label));
-      return {
-        appId: null,
-        matches: [],
-        appNames: matchedApps.map((app: any) => ({
-          id: app.id,
-          label: app.label,
-          name: app.name,
-        })),
-      };
-    }
-    console.log('[DEBUG] Strategy 4: No exact name match (case-insensitive), continuing...');
 
     // ========== PARTIAL MATCHING STRATEGIES (LOWER PRIORITY) ==========
 
