@@ -1002,9 +1002,11 @@ ${toolResult}`;
     // Check for label management patterns
     const isLabelManagement =
       (lowerText.includes('label') || lowerText.includes('mark as')) &&
-      (lowerText.includes('apply') ||
+      (lowerText.includes('create') ||
+        lowerText.includes('apply') ||
         lowerText.includes('add') ||
         lowerText.includes('remove') ||
+        lowerText.includes('delete') ||
         lowerText.includes('mark'));
 
     if (isLabelManagement) {
@@ -1266,6 +1268,394 @@ To cancel, please reply with "cancel".
         campaignType,
         reviewerType,
         duration,
+      };
+      await session.save();
+
+      return NextResponse.json({
+        message: draftSummary,
+        toolCalls: 0,
+      });
+    }
+
+    // Check for entitlement management patterns
+    const isEntitlementManagement =
+      lowerText.includes('entitlement') &&
+      (lowerText.includes('manage') ||
+        lowerText.includes('list') ||
+        lowerText.includes('add') ||
+        lowerText.includes('remove') ||
+        lowerText.includes('assign'));
+
+    if (isEntitlementManagement) {
+      console.log('[Chat] Pre-router detected entitlement management request');
+
+      // Check if this is a confirmation
+      const isConfirmation =
+        lowerText === 'confirm' ||
+        lowerText === 'yes' ||
+        lowerText === 'proceed' ||
+        lowerText === 'yes, proceed' ||
+        lowerText === 'do it';
+
+      if (isConfirmation) {
+        return NextResponse.json({
+          message:
+            'To manage entitlements, please specify the action. For example:\n"List entitlements for Salesforce"\n"Manage entitlements for ServiceNow"',
+        });
+      }
+
+      // Extract app name or ID
+      let appId = extractAppId(userText);
+      let resolvedAppName: string | null = null;
+
+      if (!appId) {
+        const forMatch = userText.match(/for\s+([^?!]+)/i);
+        const candidateAppName = forMatch?.[1]?.trim();
+
+        if (candidateAppName) {
+          console.log('[Chat] Resolving app name for entitlements:', candidateAppName);
+
+          const appsResult = await executeTool(
+            'list_manageable_apps',
+            {},
+            session.mcpAccessToken!,
+            config.mcp.endpoints.toolsCall
+          );
+
+          const { appId: resolved, matches, appNames } = resolveAppByName(
+            candidateAppName,
+            appsResult
+          );
+
+          if (resolved) {
+            appId = resolved;
+            resolvedAppName = matches[0];
+            console.log('[Chat] Resolved to appId:', appId);
+          } else if (appNames.length > 1) {
+            return NextResponse.json({
+              message: `Multiple applications match "${candidateAppName}":\n${appNames.map((n) => `- ${n}`).join('\n')}\n\nPlease specify which application and repeat the entitlement operation.`,
+            });
+          } else {
+            return NextResponse.json({
+              message: `No matching governance-enabled application was found for "${candidateAppName}".`,
+            });
+          }
+        } else {
+          return NextResponse.json({
+            message:
+              'To manage entitlements, please specify the application.\n\nExample: "List entitlements for Salesforce"',
+          });
+        }
+      }
+
+      // Build draft action summary
+      const draftSummary = `I will manage entitlements for the following application:
+
+**App:** ${resolvedAppName || appId}
+**App ID:** ${appId}
+**Action:** List and manage entitlements
+
+This action will:
+- Retrieve all entitlements (roles, permissions, access levels) for ${resolvedAppName || 'the application'}
+- Allow viewing entitlement structure
+- Enable adding/removing entitlements (with confirmation)
+
+⚠️ **Entitlement changes are write operations that modify application access.**
+
+To proceed, please reply with "confirm".
+To cancel, please reply with "cancel".
+
+ℹ️ **Note:** Entitlement management backend is currently a stub. The tool will execute when you confirm, but actual changes require backend implementation.`;
+
+      // Store pending action in session
+      session.pendingAction = {
+        type: 'manage_app_entitlements',
+        appId,
+        appName: resolvedAppName,
+        action: 'list',
+      };
+      await session.save();
+
+      return NextResponse.json({
+        message: draftSummary,
+        toolCalls: 0,
+      });
+    }
+
+    // Check for bundle management patterns
+    const isBundleManagement =
+      lowerText.includes('bundle') &&
+      (lowerText.includes('create') ||
+        lowerText.includes('manage') ||
+        lowerText.includes('list') ||
+        lowerText.includes('add'));
+
+    if (isBundleManagement) {
+      console.log('[Chat] Pre-router detected bundle management request');
+
+      const isConfirmation =
+        lowerText === 'confirm' ||
+        lowerText === 'yes' ||
+        lowerText === 'proceed' ||
+        lowerText === 'yes, proceed' ||
+        lowerText === 'do it';
+
+      if (isConfirmation) {
+        return NextResponse.json({
+          message:
+            'To manage bundles, please specify the action. For example:\n"Create bundle for new hires"\n"List all bundles"',
+        });
+      }
+
+      // Extract bundle name
+      const namedMatch = userText.match(/named?\s+['"]([^'"]+)['"]/i) ||
+                         userText.match(/called?\s+['"]([^'"]+)['"]/i) ||
+                         userText.match(/for\s+([^?!]+)/i);
+      const bundleName = namedMatch?.[1]?.trim() || 'New Application Bundle';
+
+      // Build draft action summary
+      const draftSummary = `I will create the following application bundle:
+
+**Bundle Name:** ${bundleName}
+**Action:** Create application bundle
+
+This action will:
+- Create a new application bundle (collection of apps for provisioning)
+- Bundle will be created in DRAFT status
+- You can add applications to the bundle later
+- Bundles simplify access provisioning for user groups
+
+⚠️ **This is a write operation that creates a new bundle.**
+
+To proceed, please reply with "confirm".
+To cancel, please reply with "cancel".
+
+ℹ️ **Note:** Bundle management backend is currently a stub. The tool will execute when you confirm.`;
+
+      // Store pending action in session
+      session.pendingAction = {
+        type: 'manage_app_bundles',
+        action: 'create',
+        bundleName,
+      };
+      await session.save();
+
+      return NextResponse.json({
+        message: draftSummary,
+        toolCalls: 0,
+      });
+    }
+
+    // Check for workflow management patterns
+    const isWorkflowManagement =
+      lowerText.includes('workflow') &&
+      (lowerText.includes('create') ||
+        lowerText.includes('manage') ||
+        lowerText.includes('configure') ||
+        lowerText.includes('set up') ||
+        lowerText.includes('setup'));
+
+    if (isWorkflowManagement) {
+      console.log('[Chat] Pre-router detected workflow management request');
+
+      const isConfirmation =
+        lowerText === 'confirm' ||
+        lowerText === 'yes' ||
+        lowerText === 'proceed' ||
+        lowerText === 'yes, proceed' ||
+        lowerText === 'do it';
+
+      if (isConfirmation) {
+        return NextResponse.json({
+          message:
+            'To manage workflows, please specify the action. For example:\n"Configure approval workflow for Salesforce"\n"Create workflow for ServiceNow"',
+        });
+      }
+
+      // Extract app name or ID
+      let appId = extractAppId(userText);
+      let resolvedAppName: string | null = null;
+
+      if (!appId) {
+        const forMatch = userText.match(/for\s+([^?!]+)/i);
+        const candidateAppName = forMatch?.[1]?.trim();
+
+        if (candidateAppName) {
+          console.log('[Chat] Resolving app name for workflow:', candidateAppName);
+
+          const appsResult = await executeTool(
+            'list_manageable_apps',
+            {},
+            session.mcpAccessToken!,
+            config.mcp.endpoints.toolsCall
+          );
+
+          const { appId: resolved, matches, appNames } = resolveAppByName(
+            candidateAppName,
+            appsResult
+          );
+
+          if (resolved) {
+            appId = resolved;
+            resolvedAppName = matches[0];
+            console.log('[Chat] Resolved to appId:', appId);
+          } else if (appNames.length > 1) {
+            return NextResponse.json({
+              message: `Multiple applications match "${candidateAppName}":\n${appNames.map((n) => `- ${n}`).join('\n')}\n\nPlease specify which application and repeat the workflow operation.`,
+            });
+          } else {
+            return NextResponse.json({
+              message: `No matching governance-enabled application was found for "${candidateAppName}".`,
+            });
+          }
+        } else {
+          return NextResponse.json({
+            message:
+              'To manage workflows, please specify the application.\n\nExample: "Configure approval workflow for Salesforce"',
+          });
+        }
+      }
+
+      // Build draft action summary
+      const draftSummary = `I will manage workflows for the following application:
+
+**App:** ${resolvedAppName || appId}
+**App ID:** ${appId}
+**Action:** Configure governance workflow
+
+This action will:
+- Configure approval workflows for ${resolvedAppName || 'the application'}
+- Set up automated governance actions
+- Define approval chains and automation rules
+
+⚠️ **This is a write operation that modifies workflow configuration.**
+
+To proceed, please reply with "confirm".
+To cancel, please reply with "cancel".
+
+ℹ️ **Note:** Workflow management backend is currently a stub. The tool will execute when you confirm.`;
+
+      // Store pending action in session
+      session.pendingAction = {
+        type: 'manage_app_workflows',
+        appId,
+        appName: resolvedAppName,
+        action: 'configure',
+      };
+      await session.save();
+
+      return NextResponse.json({
+        message: draftSummary,
+        toolCalls: 0,
+      });
+    }
+
+    // Check for access request patterns
+    const isAccessRequest =
+      (lowerText.includes('request') || lowerText.includes('delegate')) &&
+      (lowerText.includes('access') || lowerText.includes('app'));
+
+    if (isAccessRequest) {
+      console.log('[Chat] Pre-router detected access request creation');
+
+      const isConfirmation =
+        lowerText === 'confirm' ||
+        lowerText === 'yes' ||
+        lowerText === 'proceed' ||
+        lowerText === 'yes, proceed' ||
+        lowerText === 'do it';
+
+      if (isConfirmation) {
+        return NextResponse.json({
+          message:
+            'To create an access request, please specify the details. For example:\n"Request Salesforce access for john@example.com"\n"Delegate access to ServiceNow for jane@example.com"',
+        });
+      }
+
+      // Extract app name and user email
+      let appId = extractAppId(userText);
+      let resolvedAppName: string | null = null;
+
+      // Extract user email
+      const emailMatch = userText.match(/for\s+([\w.+-]+@[\w.-]+\.\w+)/i);
+      const userEmail = emailMatch?.[1];
+
+      if (!userEmail) {
+        return NextResponse.json({
+          message:
+            'To create an access request, please specify the user email.\n\nExample: "Request Salesforce access for john@example.com"',
+        });
+      }
+
+      if (!appId) {
+        // Try to extract app name
+        const appMatch = userText.match(/request\s+(\w+)/i);
+        const candidateAppName = appMatch?.[1]?.trim();
+
+        if (candidateAppName) {
+          console.log('[Chat] Resolving app name for access request:', candidateAppName);
+
+          const appsResult = await executeTool(
+            'list_manageable_apps',
+            {},
+            session.mcpAccessToken!,
+            config.mcp.endpoints.toolsCall
+          );
+
+          const { appId: resolved, matches, appNames } = resolveAppByName(
+            candidateAppName,
+            appsResult
+          );
+
+          if (resolved) {
+            appId = resolved;
+            resolvedAppName = matches[0];
+            console.log('[Chat] Resolved to appId:', appId);
+          } else if (appNames.length > 1) {
+            return NextResponse.json({
+              message: `Multiple applications match "${candidateAppName}":\n${appNames.map((n) => `- ${n}`).join('\n')}\n\nPlease specify which application and repeat the access request.`,
+            });
+          } else {
+            return NextResponse.json({
+              message: `No matching application was found for "${candidateAppName}".`,
+            });
+          }
+        } else {
+          return NextResponse.json({
+            message:
+              'To create an access request, please specify the application.\n\nExample: "Request Salesforce access for john@example.com"',
+          });
+        }
+      }
+
+      // Build draft action summary
+      const draftSummary = `I will create the following delegated access request:
+
+**App:** ${resolvedAppName || appId}
+**App ID:** ${appId}
+**User:** ${userEmail}
+**Action:** Create delegated access request
+
+This action will:
+- Create an access request for ${userEmail} to ${resolvedAppName || 'the application'}
+- Request will enter approval workflow (if configured)
+- User will receive notification upon approval
+- Access will be provisioned automatically if approved
+
+⚠️ **This is a write operation that creates an access request.**
+
+To proceed, please reply with "confirm".
+To cancel, please reply with "cancel".
+
+ℹ️ **Note:** Access request creation backend is currently a stub. The tool will execute when you confirm.`;
+
+      // Store pending action in session
+      session.pendingAction = {
+        type: 'create_delegated_access_request',
+        appId,
+        appName: resolvedAppName,
+        userEmail,
+        action: 'create',
       };
       await session.save();
 

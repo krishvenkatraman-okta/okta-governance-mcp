@@ -39,7 +39,7 @@ export interface SessionData {
   // Pending write operations (for confirmation flow)
   pendingAction?: {
     type: string;
-    appId: string;
+    appId?: string;
     appName?: string | null;
     action: string;
     [key: string]: unknown;
