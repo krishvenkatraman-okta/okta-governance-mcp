@@ -187,6 +187,23 @@ function isErrorResponse(toolResult: string): boolean {
 }
 
 /**
+ * Detect if a tool response indicates guidance is needed
+ * Returns true if the response requires user input/selection
+ */
+function isGuidanceNeededResponse(toolResult: string): boolean {
+  try {
+    const parsed = JSON.parse(toolResult);
+    return parsed.status === 'guidance_needed';
+  } catch {
+    // If not valid JSON or no status field, check string content
+    const lowerResult = toolResult.toLowerCase();
+    return lowerResult.includes('guidance_needed') ||
+           lowerResult.includes('more information is needed') ||
+           lowerResult.includes('selection required');
+  }
+}
+
+/**
  * Execute tool through MCP server directly using session token
  */
 async function executeTool(
@@ -724,9 +741,10 @@ export async function POST(request: NextRequest) {
         session.pendingAction = undefined;
         await session.save();
 
-        // Check if tool result indicates stub/mock implementation or error
+        // Check if tool result indicates stub/mock implementation, error, or guidance needed
         const isStub = isStubResponse(toolResult);
         const isError = isErrorResponse(toolResult);
+        const isGuidance = isGuidanceNeededResponse(toolResult);
 
         let resultMessage: string;
 
@@ -742,6 +760,11 @@ ${toolResult}`
             : `❌ **Operation failed**
 
 **Error:**
+${toolResult}`;
+        } else if (isGuidance) {
+          // Backend needs more information - show guidance
+          resultMessage = `ℹ️ **More information needed**
+
 ${toolResult}`;
         } else if (isStub) {
           // Backend is stub - make it clear no real change was made

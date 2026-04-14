@@ -240,12 +240,23 @@ async function listLabelsWithValues(_context: AuthorizationContext): Promise<Lab
   }
 
   try {
-    const response = await callGovernanceAPI<{ labels: Label[] }>(endpoint, {
+    const response = await callGovernanceAPI<{ data?: Label[]; labels?: Label[] }>(endpoint, {
       scopes: 'okta.governance.labels.read',
     });
 
-    const labels = response.labels || [];
+    // Debug: Log response structure
+    console.log('[ManageLabels] DEBUG: Response keys:', Object.keys(response));
+    console.log('[ManageLabels] DEBUG: response.data exists:', !!response.data);
+    console.log('[ManageLabels] DEBUG: response.labels exists:', !!response.labels);
+
+    // Okta API returns labels under 'data' key, not 'labels'
+    const labels = response.data || response.labels || [];
     console.log(`[ManageLabels] Found ${labels.length} labels`);
+
+    // Log first label for verification
+    if (labels.length > 0) {
+      console.log('[ManageLabels] DEBUG: First label name:', labels[0].name);
+    }
 
     // Log each label with its values
     labels.forEach((label) => {
