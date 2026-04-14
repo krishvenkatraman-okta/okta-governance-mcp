@@ -5,7 +5,12 @@
  * Supports: create, apply, remove, list, verify actions.
  */
 
-import { findEndpointByName } from '../../catalog/endpoint-registry.js';
+import {
+  findEndpointByName,
+  getEndpointsByCategory,
+  getRegistryStatus,
+  isRegistryLoaded,
+} from '../../catalog/endpoint-registry.js';
 import { governanceClient } from '../../okta/governance-client.js';
 import { appsClient } from '../../okta/apps-client.js';
 import { createJsonResponse, createErrorResponse } from '../types.js';
@@ -96,10 +101,41 @@ async function callGovernanceAPI<T>(
  * List all labels
  */
 async function listLabels(_context: AuthorizationContext): Promise<Label[]> {
-  const endpoint = findEndpointByName('List all labels');
+  // Debug: Check registry status
+  console.log('[ManageLabels] DEBUG: Checking endpoint registry status...');
+  const registryLoaded = isRegistryLoaded();
+  console.log('[ManageLabels] DEBUG: Registry loaded:', registryLoaded);
+
+  if (!registryLoaded) {
+    console.error('[ManageLabels] ERROR: Registry not loaded! This is a critical error.');
+    throw new Error('Endpoint registry not loaded - MCP server initialization failed');
+  }
+
+  const registryStatus = getRegistryStatus();
+  console.log('[ManageLabels] DEBUG: Registry status:', {
+    loaded: registryStatus.loaded,
+    endpointCount: registryStatus.endpointCount,
+    categoryCount: registryStatus.categoryCount,
+  });
+
+  // Debug: List all label endpoints available
+  const labelEndpoints = getEndpointsByCategory('Labels');
+  console.log('[ManageLabels] DEBUG: Label endpoints in registry:', labelEndpoints.length);
+  labelEndpoints.forEach((ep, idx) => {
+    console.log(`[ManageLabels] DEBUG:   ${idx + 1}. "${ep.name}" → ${ep.method} ${ep.normalizedPath}`);
+  });
+
+  // Debug: Show what we're searching for
+  const searchName = 'List all labels';
+  console.log('[ManageLabels] DEBUG: Searching for endpoint:', searchName);
+
+  const endpoint = findEndpointByName(searchName);
 
   if (!endpoint) {
-    throw new Error('Label listing endpoint not found in registry');
+    console.error('[ManageLabels] ERROR: Endpoint not found!');
+    console.error('[ManageLabels] ERROR: Searched for:', searchName);
+    console.error('[ManageLabels] ERROR: Available label endpoints:', labelEndpoints.map(e => e.name));
+    throw new Error(`Label listing endpoint not found in registry. Searched for: "${searchName}". Available: ${labelEndpoints.map(e => `"${e.name}"`).join(', ')}`);
   }
 
   console.log('[ManageLabels] Using endpoint:', {
@@ -128,10 +164,14 @@ async function createLabel(
   labelDescription: string | undefined,
   _context: AuthorizationContext
 ): Promise<Label> {
+  console.log('[ManageLabels] DEBUG: Looking up "Create a label" endpoint...');
   const endpoint = findEndpointByName('Create a label');
 
   if (!endpoint) {
-    throw new Error('Label creation endpoint not found in registry');
+    const labelEndpoints = getEndpointsByCategory('Labels');
+    console.error('[ManageLabels] ERROR: Create label endpoint not found!');
+    console.error('[ManageLabels] ERROR: Available:', labelEndpoints.map(e => `"${e.name}"`).join(', '));
+    throw new Error(`Label creation endpoint not found in registry. Available: ${labelEndpoints.map(e => `"${e.name}"`).join(', ')}`);
   }
 
   console.log('[ManageLabels] Creating label using endpoint:', {
@@ -184,10 +224,14 @@ async function assignLabel(
   appId: string,
   _context: AuthorizationContext
 ): Promise<LabelAssignment> {
+  console.log('[ManageLabels] DEBUG: Looking up "Assign the labels to resources" endpoint...');
   const endpoint = findEndpointByName('Assign the labels to resources');
 
   if (!endpoint) {
-    throw new Error('Label assignment endpoint not found in registry');
+    const labelEndpoints = getEndpointsByCategory('Labels');
+    console.error('[ManageLabels] ERROR: Assign label endpoint not found!');
+    console.error('[ManageLabels] ERROR: Available:', labelEndpoints.map(e => `"${e.name}"`).join(', '));
+    throw new Error(`Label assignment endpoint not found in registry. Available: ${labelEndpoints.map(e => `"${e.name}"`).join(', ')}`);
   }
 
   console.log('[ManageLabels] Assigning label using endpoint:', {
@@ -240,10 +284,14 @@ async function removeLabel(
   appId: string,
   _context: AuthorizationContext
 ): Promise<void> {
+  console.log('[ManageLabels] DEBUG: Looking up "Remove the labels from resources" endpoint...');
   const endpoint = findEndpointByName('Remove the labels from resources');
 
   if (!endpoint) {
-    throw new Error('Label removal endpoint not found in registry');
+    const labelEndpoints = getEndpointsByCategory('Labels');
+    console.error('[ManageLabels] ERROR: Remove label endpoint not found!');
+    console.error('[ManageLabels] ERROR: Available:', labelEndpoints.map(e => `"${e.name}"`).join(', '));
+    throw new Error(`Label removal endpoint not found in registry. Available: ${labelEndpoints.map(e => `"${e.name}"`).join(', ')}`);
   }
 
   console.log('[ManageLabels] Removing label using endpoint:', {
@@ -269,10 +317,14 @@ async function removeLabel(
  * Get labels assigned to a resource
  */
 async function getResourceLabels(appId: string, _context: AuthorizationContext): Promise<Label[]> {
+  console.log('[ManageLabels] DEBUG: Looking up "List all labeled resources" endpoint...');
   const endpoint = findEndpointByName('List all labeled resources');
 
   if (!endpoint) {
-    throw new Error('Resource labels endpoint not found in registry');
+    const labelEndpoints = getEndpointsByCategory('Labels');
+    console.error('[ManageLabels] ERROR: Resource labels endpoint not found!');
+    console.error('[ManageLabels] ERROR: Available:', labelEndpoints.map(e => `"${e.name}"`).join(', '));
+    throw new Error(`Resource labels endpoint not found in registry. Available: ${labelEndpoints.map(e => `"${e.name}"`).join(', ')}`);
   }
 
   console.log('[ManageLabels] Getting resource labels using endpoint:', {

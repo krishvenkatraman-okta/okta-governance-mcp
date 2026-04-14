@@ -21,7 +21,12 @@ import {
 import { config } from '../config/index.js';
 import { getAvailableTools } from './tool-registry.js';
 import { executeTool } from './tool-executor.js';
-import { loadEndpointRegistry, getRegistryStats } from '../catalog/endpoint-registry.js';
+import {
+  loadEndpointRegistry,
+  getRegistryStats,
+  getEndpointsByCategory,
+  findEndpointByName,
+} from '../catalog/endpoint-registry.js';
 import { validateAccessToken } from '../auth/access-token-validator.js';
 import { resolveAuthorizationContextForSubject } from '../policy/authorization-context.js';
 import type { AuthorizationContext } from '../types/index.js';
@@ -153,6 +158,28 @@ export async function startMrsServer() {
         withBody: stats.endpointsWithRequestBody,
         withExamples: stats.endpointsWithExamples,
       });
+    }
+
+    // Verify label endpoints are loaded (critical for manage_app_labels tool)
+    console.log('[MRS] Verifying label endpoints...');
+    const labelEndpoints = getEndpointsByCategory('Labels');
+    console.log(`[MRS]    - Found ${labelEndpoints.length} label endpoints`);
+
+    // Check for critical label endpoints
+    const criticalLabelEndpoints = [
+      'List all labels',
+      'Create a label',
+      'Assign the labels to resources',
+      'Remove the labels from resources',
+    ];
+
+    for (const name of criticalLabelEndpoints) {
+      const endpoint = findEndpointByName(name);
+      if (endpoint) {
+        console.log(`[MRS]    ✅ "${name}"`);
+      } else {
+        console.error(`[MRS]    ❌ Missing: "${name}"`);
+      }
     }
   } catch (error) {
     console.error('[MRS] ❌ Failed to load Postman endpoint registry:', error);

@@ -56,6 +56,7 @@ const labelTests = [
   'Delete a label',
   'List all labeled resources',
   'Assign the labels to resources',
+  'Remove the labels from resources',
 ];
 
 for (const name of labelTests) {
