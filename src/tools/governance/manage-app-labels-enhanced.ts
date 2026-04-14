@@ -25,13 +25,15 @@ import type { ToolDefinition } from '../types.js';
  */
 
 interface LabelValue {
-  id: string;
+  labelValueId: string;
+  id?: string; // Fallback for older API responses
   name: string;
   description?: string;
 }
 
 interface Label {
-  id: string;
+  labelId: string;
+  id?: string; // Fallback for older API responses
   name: string;
   description?: string;
   values: LabelValue[];
@@ -334,10 +336,16 @@ c. Create a completely new label`;
 
     if (matchingValue) {
       console.log('[ManageLabels] Found value match:', matchingValue.name, 'under label:', label.name);
+      console.log('[ManageLabels] DEBUG: Matched label object:', JSON.stringify(label, null, 2));
+      console.log('[ManageLabels] DEBUG: Matched value object:', JSON.stringify(matchingValue, null, 2));
+      console.log('[ManageLabels] DEBUG: Label ID field:', label.labelId || label.id);
+      console.log('[ManageLabels] DEBUG: Value ID field:', matchingValue.labelValueId || matchingValue.id);
 
       // Format available values
+      const matchedValueId = matchingValue.labelValueId || matchingValue.id;
       const valuesList = label.values.map((v) => {
-        return v.id === matchingValue.id ? `- **${v.name}** ← matches your request` : `- ${v.name}`;
+        const valueId = v.labelValueId || v.id;
+        return valueId === matchedValueId ? `- **${v.name}** ← matches your request` : `- ${v.name}`;
       }).join('\n');
 
       const message = `I found the value **"${matchingValue.name}"** under the label **"${label.name}"**
@@ -414,8 +422,10 @@ c. Create a completely new label?`;
     const bestMatch = valueMatches[0];
     console.log('[ManageLabels] Found partial value match:', bestMatch.value.name, 'under', bestMatch.label.name);
 
+    const matchedValueId = bestMatch.value.labelValueId || bestMatch.value.id;
     const valuesList = bestMatch.label.values.map((v) => {
-      return v.id === bestMatch.value.id ? `- **${v.name}** ← similar to your request` : `- ${v.name}`;
+      const valueId = v.labelValueId || v.id;
+      return valueId === matchedValueId ? `- **${v.name}** ← similar to your request` : `- ${v.name}`;
     }).join('\n');
 
     const message = `I found a similar value: **"${bestMatch.value.name}"** under the label **"${bestMatch.label.name}"**
@@ -667,7 +677,7 @@ Please reply with your choice:
             message: formattedMessage,
             availableValues: discovery.suggestions.options,
             label: {
-              id: discovery.matchingLabel.id,
+              id: discovery.matchingLabel.labelId || discovery.matchingLabel.id,
               name: discovery.matchingLabel.name,
             },
             resource: {
@@ -678,10 +688,44 @@ Please reply with your choice:
           });
         }
 
+        // Extract IDs with fallback for correct field names
+        const labelId = discovery.matchingLabel.labelId || discovery.matchingLabel.id;
+        const labelValueId = discovery.matchingValue.labelValueId || discovery.matchingValue.id;
+
+        // Debug: Show matched entities before assignment
+        console.log('[ManageLabels] DEBUG: About to assign label value');
+        console.log('[ManageLabels] DEBUG: Matched label object:', JSON.stringify(discovery.matchingLabel, null, 2));
+        console.log('[ManageLabels] DEBUG: Matched value object:', JSON.stringify(discovery.matchingValue, null, 2));
+        console.log('[ManageLabels] DEBUG: Resolved labelId:', labelId);
+        console.log('[ManageLabels] DEBUG: Resolved labelValueId:', labelValueId);
+        console.log('[ManageLabels] DEBUG: Resource ORN:', resourceOrn);
+
+        // Validate IDs before POST
+        if (!resourceOrn) {
+          console.error('[ManageLabels] ❌ Resource ORN is missing');
+          return createErrorResponse('Resource ORN is missing - cannot assign label');
+        }
+
+        if (!labelId) {
+          console.error('[ManageLabels] ❌ Label ID is missing or null');
+          return createErrorResponse(
+            `Label ID is missing. The API response may not include the expected 'labelId' field. ` +
+            `Matched label: ${discovery.matchingLabel.name}`
+          );
+        }
+
+        if (!labelValueId) {
+          console.error('[ManageLabels] ❌ Label value ID is missing or null');
+          return createErrorResponse(
+            `Label value ID is missing. The API response may not include the expected 'labelValueId' field. ` +
+            `Matched value: ${discovery.matchingValue.name}`
+          );
+        }
+
         // Assign the label value
         const assignment = await assignLabelValue(
-          discovery.matchingLabel.id,
-          discovery.matchingValue.id,
+          labelId,
+          labelValueId,
           resourceOrn,
           resourceType,
           context
@@ -732,7 +776,7 @@ Please reply with your choice:
           message: formattedMessage,
           existingValues: discovery.suggestions.options,
           label: {
-            id: discovery.matchingLabel.id,
+            id: discovery.matchingLabel.labelId || discovery.matchingLabel.id,
             name: discovery.matchingLabel.name,
           },
           resource: {
