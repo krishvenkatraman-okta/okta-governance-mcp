@@ -410,6 +410,22 @@ export async function startMrsServer() {
     };
   });
 
+  // Final registry verification before starting server
+  console.log('═══════════════════════════════════════════════════════');
+  console.log('[MRS] REGISTRY STATUS AT STARTUP:');
+  const status = getRegistryStatus();
+  console.log('[MRS] Loaded:', status.loaded);
+  console.log('[MRS] Endpoint Count:', status.endpointCount);
+  console.log('[MRS] Category Count:', status.categoryCount);
+  if (!status.loaded || status.endpointCount === 0) {
+    console.error('[MRS] ❌ CRITICAL: Registry not initialized!');
+    console.error('[MRS] Server cannot start without a working registry.');
+    process.exit(1);
+  } else {
+    console.log('[MRS] ✅ Registry initialized successfully');
+  }
+  console.log('═══════════════════════════════════════════════════════');
+
   // Start server with stdio transport
   const transport = new StdioServerTransport();
   await server.connect(transport);
