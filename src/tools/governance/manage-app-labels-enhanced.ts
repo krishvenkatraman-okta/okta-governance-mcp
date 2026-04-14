@@ -710,7 +710,7 @@ async function handler(
  */
 export const manageAppLabelsEnhancedTool: ToolDefinition = {
   definition: {
-    name: 'manage_app_labels_enhanced',
+    name: 'manage_app_labels',
     description: `Guided label management assistant for Okta Governance.
 
 Labels have a structure:

@@ -167,6 +167,26 @@ function isStubResponse(toolResult: string): boolean {
 }
 
 /**
+ * Detect if a tool response indicates an error
+ * Returns true if the response is an error
+ */
+function isErrorResponse(toolResult: string): boolean {
+  const lowerResult = toolResult.toLowerCase();
+  const errorIndicators = [
+    'not found',
+    'error',
+    'failed',
+    'failure',
+    'cannot',
+    'unable to',
+    'invalid',
+    'does not exist',
+  ];
+
+  return errorIndicators.some(indicator => lowerResult.includes(indicator));
+}
+
+/**
  * Execute tool through MCP server directly using session token
  */
 async function executeTool(
@@ -704,12 +724,26 @@ export async function POST(request: NextRequest) {
         session.pendingAction = undefined;
         await session.save();
 
-        // Check if tool result indicates stub/mock implementation
+        // Check if tool result indicates stub/mock implementation or error
         const isStub = isStubResponse(toolResult);
+        const isError = isErrorResponse(toolResult);
 
         let resultMessage: string;
 
-        if (isStub) {
+        if (isError) {
+          // Backend returned an error - show failure
+          resultMessage = pending.appName
+            ? `❌ **Operation failed**
+
+**Action:** ${pending.type} for ${pending.appName} (${pending.appId})
+
+**Error:**
+${toolResult}`
+            : `❌ **Operation failed**
+
+**Error:**
+${toolResult}`;
+        } else if (isStub) {
           // Backend is stub - make it clear no real change was made
           if (pending.type === 'manage_app_labels') {
             resultMessage = `⚠️ **Backend execution is not yet implemented**
@@ -1005,6 +1039,8 @@ ${toolResult}`;
       (lowerText.includes('create') ||
         lowerText.includes('apply') ||
         lowerText.includes('add') ||
+        lowerText.includes('assign') ||
+        lowerText.includes('set') ||
         lowerText.includes('remove') ||
         lowerText.includes('delete') ||
         lowerText.includes('mark'));
@@ -1083,6 +1119,9 @@ ${toolResult}`;
       // Extract label name/value
       const labelMatch =
         userText.match(/label\s+['"]?([^'"]+)['"]?\s+to/i) ||
+        userText.match(/assign\s+label\s+['"]?([^'"]+)['"]?\s+to/i) ||
+        userText.match(/assign\s+['"]?([^'"]+)['"]?\s+label\s+to/i) ||
+        userText.match(/set\s+label\s+['"]?([^'"]+)['"]?\s+on/i) ||
         userText.match(/mark\s+\w+\s+as\s+['"]?([^'"]+)['"]?/i) ||
         userText.match(/add\s+['"]?([^'"]+)['"]?\s+label/i);
 
