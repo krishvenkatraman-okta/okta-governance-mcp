@@ -286,6 +286,22 @@ async function discoverLabels(
 
   if (directLabelMatch) {
     console.log('[ManageLabels] Found exact label match:', directLabelMatch.name);
+
+    // Format available values in human-readable list
+    const valuesList = directLabelMatch.values.length > 0
+      ? directLabelMatch.values.map((v) => `- ${v.name}`).join('\n')
+      : '(no values defined yet)';
+
+    const message = `I found an existing label: **${directLabelMatch.name}**
+
+Available values:
+${valuesList}
+
+What would you like to do?
+a. Assign one of the existing values above
+b. Create a new value under "${directLabelMatch.name}"
+c. Create a completely new label`;
+
     return {
       existingLabels,
       matchingLabel: directLabelMatch,
@@ -293,7 +309,7 @@ async function discoverLabels(
         labelExists: true,
         valueExists: false,
         recommendedAction: 'assign_existing',
-        message: `I found the label "${directLabelMatch.name}" with ${directLabelMatch.values.length} available values.`,
+        message,
         options: directLabelMatch.values.map((v) => v.name),
       },
     };
@@ -307,6 +323,19 @@ async function discoverLabels(
 
     if (matchingValue) {
       console.log('[ManageLabels] Found value match:', matchingValue.name, 'under label:', label.name);
+
+      // Format available values
+      const valuesList = label.values.map((v) => {
+        return v.id === matchingValue.id ? `- **${v.name}** ← matches your request` : `- ${v.name}`;
+      }).join('\n');
+
+      const message = `I found the value **"${matchingValue.name}"** under the label **"${label.name}"**
+
+Available values in this label:
+${valuesList}
+
+Would you like me to assign "${matchingValue.name}" to the application?`;
+
       return {
         existingLabels,
         matchingLabel: label,
@@ -315,7 +344,7 @@ async function discoverLabels(
           labelExists: true,
           valueExists: true,
           recommendedAction: 'assign_existing',
-          message: `I found the label "${label.name}" which has the value "${matchingValue.name}".`,
+          message,
           options: label.values.map((v) => v.name),
         },
       };
@@ -330,6 +359,21 @@ async function discoverLabels(
   if (partialLabelMatches.length > 0) {
     const bestMatch = partialLabelMatches[0];
     console.log('[ManageLabels] Found partial label match:', bestMatch.name);
+
+    const valuesList = bestMatch.values.length > 0
+      ? bestMatch.values.map((v) => `- ${v.name}`).join('\n')
+      : '(no values defined yet)';
+
+    const message = `I found a similar label: **${bestMatch.name}**
+
+Available values:
+${valuesList}
+
+Did you mean:
+a. Use one of the values from "${bestMatch.name}"?
+b. Create a new value under "${bestMatch.name}"?
+c. Create a completely new label?`;
+
     return {
       existingLabels,
       matchingLabel: bestMatch,
@@ -337,7 +381,7 @@ async function discoverLabels(
         labelExists: true,
         valueExists: false,
         recommendedAction: 'create_value',
-        message: `I found a similar label: "${bestMatch.name}". Did you mean to use one of its values, or create a new value?`,
+        message,
         options: bestMatch.values.map((v) => v.name),
       },
     };
@@ -358,6 +402,18 @@ async function discoverLabels(
   if (valueMatches.length > 0) {
     const bestMatch = valueMatches[0];
     console.log('[ManageLabels] Found partial value match:', bestMatch.value.name, 'under', bestMatch.label.name);
+
+    const valuesList = bestMatch.label.values.map((v) => {
+      return v.id === bestMatch.value.id ? `- **${v.name}** ← similar to your request` : `- ${v.name}`;
+    }).join('\n');
+
+    const message = `I found a similar value: **"${bestMatch.value.name}"** under the label **"${bestMatch.label.name}"**
+
+Available values:
+${valuesList}
+
+Would you like me to assign "${bestMatch.value.name}"?`;
+
     return {
       existingLabels,
       matchingLabel: bestMatch.label,
@@ -366,7 +422,7 @@ async function discoverLabels(
         labelExists: true,
         valueExists: true,
         recommendedAction: 'assign_existing',
-        message: `I found a similar value: "${bestMatch.value.name}" under the label "${bestMatch.label.name}".`,
+        message,
         options: bestMatch.label.values.map((v) => v.name),
       },
     };
@@ -374,15 +430,36 @@ async function discoverLabels(
 
   // Strategy 5: No matches - new label needed
   console.log('[ManageLabels] No matches found, new label needed');
+
+  // Show existing labels for reference
+  const existingLabelsList = existingLabels.length > 0
+    ? existingLabels.slice(0, 5).map((l) => {
+        const valueCount = l.values.length;
+        return `- ${l.name} (${valueCount} value${valueCount !== 1 ? 's' : ''})`;
+      }).join('\n')
+    : '(no labels exist yet)';
+
+  const message = `I couldn't find any existing labels or values matching **"${searchTerm}"**
+
+Existing labels for reference:
+${existingLabelsList}
+${existingLabels.length > 5 ? `... and ${existingLabels.length - 5} more` : ''}
+
+To create a new label, I'll need:
+1. **Label name** (the category) - for example: "Risk", "Compliance", "Department"
+2. **First value** under that label - for example: "high-risk", "PCI-compliant", "Engineering"
+
+Please tell me:
+- The label name you want to create
+- The first value under that label`;
+
   return {
     existingLabels,
     suggestions: {
       labelExists: false,
       valueExists: false,
       recommendedAction: 'create_label',
-      message: `I couldn't find any existing labels or values matching "${searchTerm}". To create a new label, I'll need:
-1. The label name (category) - for example: "Risk", "Compliance", "Department"
-2. The first value under that label - for example: "high-risk", "PCI-compliant", "Engineering"`,
+      message,
     },
   };
 }
@@ -534,14 +611,31 @@ async function guidedApplyWorkflow(
         // Label and value both exist - assign it
         if (!discovery.matchingLabel || !discovery.matchingValue) {
           // Label exists but no specific value - ask user
+          if (!discovery.matchingLabel) {
+            return createErrorResponse('Label information missing from discovery');
+          }
+
+          const formattedMessage = `${discovery.suggestions.message}
+
+**Resource:** ${resource.label} (${resource.type})
+
+Please reply with your choice:
+- To assign an existing value: just type the value name (e.g., "SOX")
+- To create a new value: specify "create value: <name>"
+- To start over with a new label: type "cancel"`;
+
           return createJsonResponse({
             status: 'guidance_needed',
-            message: discovery.suggestions.message,
+            message: formattedMessage,
             availableValues: discovery.suggestions.options,
-            nextStep: 'Please specify which value you want to assign from the list above.',
+            label: {
+              id: discovery.matchingLabel.id,
+              name: discovery.matchingLabel.name,
+            },
             resource: {
               name: resource.label,
               type: resource.type,
+              id: resource.id,
             },
           });
         }
@@ -574,34 +668,57 @@ async function guidedApplyWorkflow(
 
       case 'create_value': {
         // Label exists but value doesn't - guide user
+        if (!discovery.matchingLabel) {
+          return createErrorResponse('Label information missing from discovery');
+        }
+
+        const formattedMessage = `${discovery.suggestions.message}
+
+**Resource:** ${resource.label} (${resource.type})
+
+Please reply with your choice:
+- To use an existing value: just type the value name
+- To create a new value under "${discovery.matchingLabel.name}": specify "create value: <name>"
+- To create a completely new label: type "new label"`;
+
         return createJsonResponse({
           status: 'guidance_needed',
-          message: discovery.suggestions.message,
+          message: formattedMessage,
           existingValues: discovery.suggestions.options,
-          recommendedAction: 'Choose one of the existing values above, or tell me the new value you want to create.',
+          label: {
+            id: discovery.matchingLabel.id,
+            name: discovery.matchingLabel.name,
+          },
           resource: {
             name: resource.label,
             type: resource.type,
-          },
-          label: {
-            name: discovery.matchingLabel?.name,
+            id: resource.id,
           },
         });
       }
 
       case 'create_label': {
         // No label exists - guide user to provide both label name and value
+        const formattedMessage = `${discovery.suggestions.message}
+
+**Resource:** ${resource.label} (${resource.type})
+
+To proceed, please reply with:
+**"create label: <label-name> value: <value-name>"**
+
+Example: "create label: Risk value: high-risk"`;
+
         return createJsonResponse({
           status: 'guidance_needed',
-          message: discovery.suggestions.message,
-          existingLabels: discovery.existingLabels.map((l) => ({
+          message: formattedMessage,
+          existingLabels: discovery.existingLabels.slice(0, 5).map((l) => ({
             name: l.name,
-            values: l.values.map((v) => v.name),
+            valueCount: l.values.length,
           })),
-          recommendedAction: 'Please provide:\n1. The label name (category)\n2. The value under that label',
           resource: {
             name: resource.label,
             type: resource.type,
+            id: resource.id,
           },
         });
       }
