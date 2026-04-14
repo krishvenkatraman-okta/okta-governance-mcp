@@ -526,32 +526,32 @@ async function assignLabelValue(
   resourceType: string,
   _context: AuthorizationContext
 ): Promise<any> {
-  console.log('[ManageLabels] Assigning label value:', {
-    labelId,
-    valueId,
-    resourceOrn,
-    resourceType,
-  });
+  console.log('[ManageLabels] ========================================');
+  console.log('[ManageLabels] Assigning label value');
+  console.log('[ManageLabels] ========================================');
 
   const endpoint = findEndpointByName('Assign the labels to resources');
   if (!endpoint) {
     throw new Error('Label assignment endpoint not found in registry');
   }
 
+  // API expects: POST /governance/api/v1/resource-labels/assign
+  // Body format: { resourceOrns: [...], labelValueIds: [...] }
   const requestBody = {
-    assignments: [
-      {
-        resourceOrn,
-        resourceType,
-        labelValues: [
-          {
-            labelId,
-            valueId,
-          },
-        ],
-      },
-    ],
+    resourceOrns: [resourceOrn],
+    labelValueIds: [valueId],
   };
+
+  // Debug logging BEFORE request
+  console.log('[ManageLabels] DEBUG: Assignment request details:');
+  console.log('[ManageLabels]   Endpoint:', endpoint.name);
+  console.log('[ManageLabels]   Method:', endpoint.method);
+  console.log('[ManageLabels]   Path:', endpoint.normalizedPath);
+  console.log('[ManageLabels]   Resource ORN:', resourceOrn);
+  console.log('[ManageLabels]   Resource Type:', resourceType);
+  console.log('[ManageLabels]   Label ID:', labelId);
+  console.log('[ManageLabels]   Value ID:', valueId);
+  console.log('[ManageLabels]   Request body:', JSON.stringify(requestBody, null, 2));
 
   try {
     const response = await callGovernanceAPI<any>(endpoint, {
@@ -559,10 +559,37 @@ async function assignLabelValue(
       scopes: 'okta.governance.labels.manage',
     });
 
-    console.log('[ManageLabels] Successfully assigned label value');
+    // Debug logging AFTER request
+    console.log('[ManageLabels] DEBUG: Assignment response received');
+    console.log('[ManageLabels]   Response keys:', Object.keys(response));
+    console.log('[ManageLabels]   response.data exists:', !!response.data);
+
+    if (response.data) {
+      console.log('[ManageLabels]   response.data is array:', Array.isArray(response.data));
+      if (Array.isArray(response.data)) {
+        console.log('[ManageLabels]   response.data.length:', response.data.length);
+      }
+    }
+
+    console.log('[ManageLabels]   Full response:', JSON.stringify(response, null, 2));
+
+    // Validate response - do NOT mark as success if data is empty
+    if (response.data && Array.isArray(response.data) && response.data.length === 0) {
+      console.error('[ManageLabels] ❌ Assignment returned empty data array');
+      throw new Error('Label assignment returned empty result - assignment may not have succeeded');
+    }
+
+    if (!response.data) {
+      console.error('[ManageLabels] ❌ Assignment response missing data field');
+      throw new Error('Label assignment response invalid - no data field returned');
+    }
+
+    console.log('[ManageLabels] ✅ Label value assigned successfully');
+    console.log('[ManageLabels] ========================================');
     return response;
   } catch (error) {
-    console.error('[ManageLabels] Failed to assign label value:', error);
+    console.error('[ManageLabels] ❌ Failed to assign label value:', error);
+    console.error('[ManageLabels] ========================================');
     throw new Error(`Failed to assign label: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 }
@@ -659,6 +686,14 @@ Please reply with your choice:
           resourceType,
           context
         );
+
+        // Validate assignment result before marking as success
+        if (!assignment || !assignment.data || (Array.isArray(assignment.data) && assignment.data.length === 0)) {
+          console.error('[ManageLabels] ❌ Assignment response invalid or empty');
+          return createErrorResponse(
+            `Label assignment could not be verified. The API returned an empty or invalid response. Please check if the label was actually assigned in Okta.`
+          );
+        }
 
         return createJsonResponse({
           success: true,
