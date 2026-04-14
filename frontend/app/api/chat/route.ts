@@ -763,9 +763,17 @@ ${toolResult}`
 ${toolResult}`;
         } else if (isGuidance) {
           // Backend needs more information - show guidance
-          resultMessage = `ℹ️ **More information needed**
+          // Parse the message from the JSON response instead of showing raw JSON
+          try {
+            const parsed = JSON.parse(toolResult);
+            const guidanceMessage = parsed.message || toolResult;
+            resultMessage = guidanceMessage;
+          } catch {
+            // If parsing fails, show the raw result
+            resultMessage = `ℹ️ **More information needed**
 
 ${toolResult}`;
+          }
         } else if (isStub) {
           // Backend is stub - make it clear no real change was made
           if (pending.type === 'manage_app_labels') {
@@ -1157,7 +1165,47 @@ ${toolResult}`;
         });
       }
 
-      // Build draft action summary
+      // CRITICAL FIX: Call backend first to check if guidance is needed
+      // Do NOT show confirmation draft until we know we have all required info
+      console.log('[Chat] Checking label requirements before confirmation');
+      const checkResult = await executeTool(
+        'manage_app_labels',
+        {
+          action: 'apply',
+          appId,
+          labelName,
+          labelValue: labelName, // Try using labelName as value in case it matches
+        },
+        session.mcpAccessToken!,
+        config.mcp.endpoints.toolsCall
+      );
+
+      // Check if backend needs guidance (value selection required)
+      const needsGuidance = isGuidanceNeededResponse(checkResult);
+
+      if (needsGuidance) {
+        // Backend needs more information (e.g., value selection)
+        // Show the guidance message, NOT a confirmation draft
+        try {
+          const parsed = JSON.parse(checkResult);
+          const guidanceMessage = parsed.message || checkResult;
+
+          console.log('[Chat] Label requires value selection, showing guidance');
+          return NextResponse.json({
+            message: guidanceMessage,
+            toolCalls: 0,
+          });
+        } catch {
+          // Fallback if parsing fails
+          return NextResponse.json({
+            message: checkResult,
+            toolCalls: 0,
+          });
+        }
+      }
+
+      // If no guidance needed, proceed with confirmation draft
+      // This means we have all required info (label + value)
       const draftSummary = `I will apply the following label:
 
 **App:** ${resolvedAppName || appId}
