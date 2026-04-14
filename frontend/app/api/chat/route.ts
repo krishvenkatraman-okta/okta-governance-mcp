@@ -708,13 +708,20 @@ export async function POST(request: NextRequest) {
 
         if (pending.type === 'manage_app_labels') {
           // Execute label management
+          const toolArgs: Record<string, unknown> = {
+            appId: pending.appId,
+            action: pending.action,
+            labelName: pending.labelName,
+          };
+
+          // Include labelValue if it was selected during workflow
+          if (pending.labelValue) {
+            toolArgs.labelValue = pending.labelValue;
+          }
+
           toolResult = await executeTool(
             'manage_app_labels',
-            {
-              appId: pending.appId,
-              action: pending.action,
-              labelName: pending.labelName,
-            },
+            toolArgs,
             session.mcpAccessToken!,
             config.mcp.endpoints.toolsCall
           );
@@ -832,6 +839,107 @@ ${toolResult}`;
           message: `Error executing ${pending.type}: ${error instanceof Error ? error.message : 'Unknown error'}`,
         });
       }
+    }
+
+    // Check for pending label workflow (value selection follow-up)
+    if (session.pendingLabelWorkflow && session.pendingLabelWorkflow.stage === 'awaiting_value_selection') {
+      console.log('[Chat] Pending label workflow detected, treating input as value selection');
+
+      const workflow = session.pendingLabelWorkflow;
+      const selectedValue = userText.trim();
+
+      console.log('[Chat] Selected value:', selectedValue);
+      console.log('[Chat] Available values:', workflow.availableValues);
+
+      // Continue the workflow by calling backend with selected value
+      const continueResult = await executeTool(
+        'manage_app_labels',
+        {
+          action: 'apply',
+          appId: workflow.appId,
+          labelName: workflow.labelName,
+          labelValue: selectedValue,
+        },
+        session.mcpAccessToken!,
+        config.mcp.endpoints.toolsCall
+      );
+
+      // Check if backend still needs guidance or is ready for confirmation
+      const stillNeedsGuidance = isGuidanceNeededResponse(continueResult);
+
+      if (stillNeedsGuidance) {
+        // Still needs more info (e.g., invalid value selection)
+        try {
+          const parsed = JSON.parse(continueResult);
+          const guidanceMessage = parsed.message || continueResult;
+
+          console.log('[Chat] Still needs guidance after value selection');
+          return NextResponse.json({
+            message: guidanceMessage,
+            toolCalls: 0,
+          });
+        } catch {
+          return NextResponse.json({
+            message: continueResult,
+            toolCalls: 0,
+          });
+        }
+      }
+
+      // Check if successful or ready for confirmation
+      const isError = isErrorResponse(continueResult);
+
+      if (isError) {
+        // Value selection failed
+        console.log('[Chat] Value selection failed');
+        session.pendingLabelWorkflow = undefined;
+        await session.save();
+
+        return NextResponse.json({
+          message: `❌ Failed to apply label: ${continueResult}`,
+          toolCalls: 0,
+        });
+      }
+
+      // Success or ready for confirmation - transition to confirmation stage
+      console.log('[Chat] Value selected successfully, moving to confirmation stage');
+
+      const draftSummary = `I will apply the following label:
+
+**App:** ${workflow.appName || workflow.appId}
+**App ID:** ${workflow.appId}
+**Action:** Apply label
+**Label:** ${workflow.labelName}
+**Value:** ${selectedValue}
+
+This action will:
+- Add the '${workflow.labelName}' label with value '${selectedValue}' to ${workflow.appName || 'the application'}
+- Make the app visible in filtered views for this label
+- This change may affect governance reports and workflows
+
+⚠️ **This is a write operation that will modify the application configuration.**
+
+To proceed, please reply with "confirm".
+To cancel, please reply with "cancel".`;
+
+      // Store pending action for confirmation
+      session.pendingAction = {
+        type: 'manage_app_labels',
+        appId: workflow.appId,
+        appName: workflow.appName,
+        action: 'apply',
+        labelName: workflow.labelName,
+        labelValue: selectedValue,
+      };
+
+      // Clear pending label workflow (now in pendingAction)
+      session.pendingLabelWorkflow = undefined;
+      await session.save();
+
+      return NextResponse.json({
+        message: draftSummary,
+        toolCalls: 0,
+      });
     }
 
     // Check for pending app resolution (disambiguation follow-up)
@@ -1191,6 +1299,22 @@ ${toolResult}`;
           const guidanceMessage = parsed.message || checkResult;
 
           console.log('[Chat] Label requires value selection, showing guidance');
+
+          // CRITICAL: Store pending label workflow state for next turn
+          session.pendingLabelWorkflow = {
+            stage: 'awaiting_value_selection',
+            toolName: 'manage_app_labels',
+            action: 'apply',
+            appId,
+            appName: resolvedAppName,
+            labelName,
+            availableValues: parsed.availableValues || [],
+            label: parsed.label, // Contains labelId if available
+          };
+          await session.save();
+
+          console.log('[Chat] Stored pending label workflow state:', session.pendingLabelWorkflow);
+
           return NextResponse.json({
             message: guidanceMessage,
             toolCalls: 0,
