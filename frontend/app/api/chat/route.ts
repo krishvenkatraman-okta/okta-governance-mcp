@@ -44,8 +44,9 @@ interface ToolCall {
 }
 
 interface GovernanceIntent {
-  type: 'requests' | 'catalog' | 'reviews' | 'certifications' | 'settings' | 'none';
+  type: 'requests' | 'catalog' | 'reviews' | 'certifications' | 'settings' | 'request_access' | 'none';
   query: string;
+  resourceName?: string; // For request_access: the resource to request
   params?: {
     limit?: number;
     sortBy?: string;
@@ -56,12 +57,28 @@ interface GovernanceIntent {
 
 /**
  * Detect if user message is asking for end-user governance data
- * (requests, catalog, reviews, certifications, settings)
+ * (requests, catalog, reviews, certifications, settings, request_access)
  */
 function detectGovernanceIntent(message: string): GovernanceIntent {
   const lower = message.toLowerCase();
 
-  // Requests keywords
+  // Request access keywords (must check before "request" keyword)
+  if (
+    lower.includes('request access') ||
+    lower.includes('i need access') ||
+    lower.includes('can i get access') ||
+    lower.match(/request .+ for/i) || // "request access for Adobe"
+    lower.match(/access to .+/i) // "I need access to Adobe"
+  ) {
+    // Try to extract resource name
+    const resourceMatch =
+      message.match(/(?:request access (?:to |for )?|access to |i need access to )([a-zA-Z0-9\s\-_\.]+)/i);
+    const resourceName = resourceMatch ? resourceMatch[1].trim() : undefined;
+
+    return { type: 'request_access', query: message, resourceName };
+  }
+
+  // Requests keywords (existing requests)
   if (
     lower.includes('my request') ||
     lower.includes('pending') ||
@@ -110,6 +127,144 @@ function detectGovernanceIntent(message: string): GovernanceIntent {
   }
 
   return { type: 'none', query: message };
+}
+
+/**
+ * v2 API: List catalog entries available to the user
+ */
+async function listCatalogEntries(
+  userAccessToken: string,
+  oktaDomain: string
+): Promise<any[]> {
+  try {
+    const url = `https://${oktaDomain}/governance/api/v2/my/catalogs/default/entries?limit=100`;
+    console.log('[AccessRequest] Fetching catalog entries from:', url);
+
+    const response = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${userAccessToken}`,
+        Accept: 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      console.error('[AccessRequest] Failed to fetch catalog entries:', response.status);
+      return [];
+    }
+
+    const data = await response.json();
+    const entries = data._embedded?.entries || data.entries || [];
+    console.log('[AccessRequest] Retrieved', entries.length, 'catalog entries');
+    return entries;
+  } catch (error: any) {
+    console.error('[AccessRequest] Error getting catalog entries:', error.message);
+    return [];
+  }
+}
+
+/**
+ * v2 API: Get specific catalog entry details
+ */
+async function getCatalogEntry(
+  userAccessToken: string,
+  oktaDomain: string,
+  entryId: string
+): Promise<any | null> {
+  try {
+    const url = `https://${oktaDomain}/governance/api/v2/my/catalogs/default/entries/${entryId}`;
+    console.log('[AccessRequest] Fetching catalog entry:', entryId);
+
+    const response = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${userAccessToken}`,
+        Accept: 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      console.error('[AccessRequest] Failed to fetch catalog entry:', response.status);
+      return null;
+    }
+
+    const data = await response.json();
+    console.log('[AccessRequest] Retrieved catalog entry:', data.name);
+    return data;
+  } catch (error: any) {
+    console.error('[AccessRequest] Error getting catalog entry:', error.message);
+    return null;
+  }
+}
+
+/**
+ * v2 API: Get request fields for a catalog entry
+ */
+async function getRequestFields(
+  userAccessToken: string,
+  oktaDomain: string,
+  entryId: string
+): Promise<any[]> {
+  try {
+    const url = `https://${oktaDomain}/governance/api/v2/my/catalogs/default/entries/${entryId}/request-fields`;
+    console.log('[AccessRequest] Fetching request fields for entry:', entryId);
+
+    const response = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${userAccessToken}`,
+        Accept: 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      console.error('[AccessRequest] Failed to fetch request fields:', response.status);
+      return [];
+    }
+
+    const data = await response.json();
+    const fields = data._embedded?.fields || data.fields || [];
+    console.log('[AccessRequest] Retrieved', fields.length, 'request fields');
+    return fields;
+  } catch (error: any) {
+    console.error('[AccessRequest] Error getting request fields:', error.message);
+    return [];
+  }
+}
+
+/**
+ * v2 API: Create access request for a catalog entry
+ */
+async function createAccessRequest(
+  userAccessToken: string,
+  oktaDomain: string,
+  entryId: string,
+  requestData: any
+): Promise<any> {
+  try {
+    const url = `https://${oktaDomain}/governance/api/v2/my/catalogs/default/entries/${entryId}/requests`;
+    console.log('[AccessRequest] Creating access request for entry:', entryId);
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${userAccessToken}`,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify(requestData),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('[AccessRequest] Failed to create request:', response.status, errorText);
+      throw new Error(`Failed to create access request: ${response.status} ${errorText}`);
+    }
+
+    const data = await response.json();
+    console.log('[AccessRequest] Successfully created access request:', data.id);
+    return data;
+  } catch (error: any) {
+    console.error('[AccessRequest] Error creating access request:', error.message);
+    throw error;
+  }
 }
 
 // Read-only tools allowed in chat
@@ -748,6 +903,93 @@ export async function POST(request: NextRequest) {
       }
 
       try {
+        // Special handling for access request workflow
+        if (governanceIntent.type === 'request_access') {
+          const oktaDomain = process.env.NEXT_PUBLIC_OKTA_DOMAIN;
+          if (!oktaDomain) {
+            return NextResponse.json({
+              message: 'Okta domain not configured. Cannot process access request.',
+            });
+          }
+
+          console.log('[Chat] Processing access request for:', governanceIntent.resourceName);
+
+          // Step 1: Get catalog entries
+          const entries = await listCatalogEntries(session.userAccessToken!, oktaDomain);
+
+          if (entries.length === 0) {
+            return NextResponse.json({
+              message: 'No catalog entries available. You may not have permission to request access to any resources.',
+            });
+          }
+
+          // Step 2: Find matching entry
+          let matchedEntry: any = null;
+          if (governanceIntent.resourceName) {
+            const searchTerm = governanceIntent.resourceName.toLowerCase();
+            matchedEntry = entries.find(
+              (entry: any) =>
+                entry.name?.toLowerCase().includes(searchTerm) ||
+                entry.displayName?.toLowerCase().includes(searchTerm) ||
+                entry.description?.toLowerCase().includes(searchTerm)
+            );
+          }
+
+          if (!matchedEntry) {
+            // List available entries
+            const availableList = entries
+              .slice(0, 10)
+              .map((e: any) => `- ${e.displayName || e.name}`)
+              .join('\n');
+
+            return NextResponse.json({
+              message: governanceIntent.resourceName
+                ? `I couldn't find "${governanceIntent.resourceName}" in the catalog. Here are some available resources:\n\n${availableList}\n\nPlease specify which one you'd like to request.`
+                : `Please specify which resource you'd like to request. Here are some available options:\n\n${availableList}`,
+            });
+          }
+
+          // Step 3: Get request fields
+          const fields = await getRequestFields(session.userAccessToken!, oktaDomain, matchedEntry.id);
+
+          // Step 4: Check if fields are required
+          const requiredFields = fields.filter((f: any) => f.required);
+
+          if (requiredFields.length > 0) {
+            // Need to collect field values
+            const fieldList = requiredFields
+              .map((f: any) => `- ${f.label || f.name}: ${f.description || ''}`)
+              .join('\n');
+
+            return NextResponse.json({
+              message: `To request access to **${matchedEntry.displayName || matchedEntry.name}**, I need some additional information:\n\n${fieldList}\n\nPlease provide the required information to proceed with your request.`,
+            });
+          }
+
+          // Step 5: Create access request (no required fields)
+          try {
+            const requestData = {
+              justification: `Access requested via chat for ${matchedEntry.displayName || matchedEntry.name}`,
+            };
+
+            const createdRequest = await createAccessRequest(
+              session.userAccessToken!,
+              oktaDomain,
+              matchedEntry.id,
+              requestData
+            );
+
+            return NextResponse.json({
+              message: `✅ Successfully created access request for **${matchedEntry.displayName || matchedEntry.name}**\n\nRequest ID: ${createdRequest.id}\nStatus: ${createdRequest.status || 'PENDING'}\n\nYou can check the status of your request by asking "Show my pending requests".`,
+            });
+          } catch (error: any) {
+            return NextResponse.json({
+              message: `❌ Failed to create access request for ${matchedEntry.displayName || matchedEntry.name}: ${error.message}`,
+            });
+          }
+        }
+
+        // Standard governance data fetching (non-request_access)
         let endpoint: string;
         let queryParams: string = '';
 
