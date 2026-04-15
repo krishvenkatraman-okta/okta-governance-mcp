@@ -517,7 +517,12 @@ function askForNextField(field: any, index: number, total: number): string {
 /**
  * Show confirmation preview before creating request
  */
-function showConfirmationPreview(workflow: any): string {
+async function showConfirmationPreview(
+  workflow: any,
+  userAccessToken: string,
+  oktaDomain: string,
+  entryId: string
+): Promise<string> {
   const lines = ['**Ready to submit your access request:**', ''];
 
   lines.push(`📦 **Resource:** ${workflow.resourceName || 'N/A'}`);
@@ -530,8 +535,17 @@ function showConfirmationPreview(workflow: any): string {
     lines.push('');
     lines.push('**Details:**');
 
+    // Fetch fields to get labels and types
+    const requestFieldIds = workflow.requestFieldIds || [];
+    let fields: any[] = [];
+
+    if (requestFieldIds.length > 0) {
+      const allFields = await getRequestFields(userAccessToken, oktaDomain, entryId);
+      fields = allFields.filter((f: any) => requestFieldIds.includes(f.id));
+    }
+
     for (const [fieldId, value] of Object.entries(workflow.collectedValues)) {
-      const field = workflow.requestFields?.find((f: any) => f.id === fieldId);
+      const field = fields.find((f: any) => f.id === fieldId);
       const label = field?.label || field?.name || fieldId;
 
       // Format value for display
@@ -606,10 +620,11 @@ async function handleAwaitingEntitlementSelection(
   console.log('[AccessRequest] Required fields:', requiredFields.length);
 
   // Update workflow
+  // Store only field IDs to keep session size small
   workflow.stage = requiredFields.length > 0 ? 'collecting_fields' : 'awaiting_confirmation';
   workflow.selectedEntryId = selected.id;
   workflow.selectedEntryName = selected.displayName || selected.name;
-  workflow.requestFields = requiredFields;
+  workflow.requestFieldIds = requiredFields.map((f: any) => f.id);
   workflow.collectedValues = {};
   workflow.currentFieldIndex = 0;
 
@@ -617,7 +632,7 @@ async function handleAwaitingEntitlementSelection(
 
   // If no required fields, show confirmation immediately
   if (requiredFields.length === 0) {
-    return showConfirmationPreview(workflow);
+    return await showConfirmationPreview(workflow, userAccessToken, oktaDomain, selected.id);
   }
 
   // Ask for first field
@@ -635,7 +650,19 @@ async function handleCollectingFields(
 ): Promise<string> {
   const workflow = session.pendingAccessRequestWorkflow;
   const currentFieldIndex = workflow.currentFieldIndex || 0;
-  const field = workflow.requestFields[currentFieldIndex];
+  const requestFieldIds = workflow.requestFieldIds || [];
+
+  if (currentFieldIndex >= requestFieldIds.length) {
+    console.error('[AccessRequest] No field at index:', currentFieldIndex);
+    return 'Error: No field to process. Please start over.';
+  }
+
+  // Fetch full field objects from IDs
+  const entryId = workflow.selectedEntryId;
+  const allFields = await getRequestFields(userAccessToken, oktaDomain, entryId);
+  const requestFields = allFields.filter((f: any) => requestFieldIds.includes(f.id));
+
+  const field = requestFields[currentFieldIndex];
 
   if (!field) {
     console.error('[AccessRequest] No field at index:', currentFieldIndex);
@@ -662,21 +689,21 @@ async function handleCollectingFields(
   console.log('[AccessRequest] Collected values so far:', Object.keys(workflow.collectedValues).length);
 
   // Check if more fields needed
-  if (currentFieldIndex < workflow.requestFields.length - 1) {
+  if (currentFieldIndex < requestFieldIds.length - 1) {
     // Move to next field
     workflow.currentFieldIndex = currentFieldIndex + 1;
-    const nextField = workflow.requestFields[workflow.currentFieldIndex];
+    const nextField = requestFields[workflow.currentFieldIndex];
 
     await session.save();
 
-    return askForNextField(nextField, workflow.currentFieldIndex, workflow.requestFields.length);
+    return askForNextField(nextField, workflow.currentFieldIndex, requestFieldIds.length);
   } else {
     // All fields collected, show confirmation
     workflow.stage = 'awaiting_confirmation';
     await session.save();
 
     console.log('[AccessRequest] All fields collected, showing confirmation');
-    return showConfirmationPreview(workflow);
+    return await showConfirmationPreview(workflow, userAccessToken, oktaDomain, entryId);
   }
 }
 
@@ -1552,12 +1579,13 @@ export async function POST(request: NextRequest) {
           }
 
           // Step 4: Required fields - start field collection workflow
+          // Store only field IDs to keep session size small
           session.pendingAccessRequestWorkflow = {
             stage: 'collecting_fields',
             resourceName: parentEntry.displayName || parentEntry.name,
             selectedEntryId: parentEntry.id,
             selectedEntryName: parentEntry.displayName || parentEntry.name,
-            requestFields: requiredFields,
+            requestFieldIds: requiredFields.map((f: any) => f.id),
             collectedValues: {},
             currentFieldIndex: 0,
           };

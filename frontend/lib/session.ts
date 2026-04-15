@@ -73,7 +73,7 @@ export interface SessionData {
     childEntryIds?: string[]; // Child entitlement IDs (stored instead of full objects)
     selectedEntryId?: string; // Selected entitlement ID
     selectedEntryName?: string; // Selected entitlement name for display
-    requestFields?: any[]; // Required fields for request
+    requestFieldIds?: string[]; // Required field IDs (stored instead of full field objects)
     collectedValues?: Record<string, any>; // Field values collected so far
     currentFieldIndex?: number; // Which field we're collecting
   };
