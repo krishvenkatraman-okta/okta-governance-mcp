@@ -43,6 +43,75 @@ interface ToolCall {
   };
 }
 
+interface GovernanceIntent {
+  type: 'requests' | 'catalog' | 'reviews' | 'certifications' | 'settings' | 'none';
+  query: string;
+  params?: {
+    limit?: number;
+    sortBy?: string;
+    sortOrder?: string;
+    campaignStatus?: string;
+  };
+}
+
+/**
+ * Detect if user message is asking for end-user governance data
+ * (requests, catalog, reviews, certifications, settings)
+ */
+function detectGovernanceIntent(message: string): GovernanceIntent {
+  const lower = message.toLowerCase();
+
+  // Requests keywords
+  if (
+    lower.includes('my request') ||
+    lower.includes('pending') ||
+    lower.includes('approval') ||
+    lower.includes('applied for') ||
+    lower.includes('what have i requested')
+  ) {
+    return { type: 'requests', query: message };
+  }
+
+  // Catalog keywords
+  if (
+    lower.includes('catalog') ||
+    lower.includes('available') ||
+    lower.includes('can i request') ||
+    lower.includes('what can i request') ||
+    lower.includes('browse')
+  ) {
+    return { type: 'catalog', query: message };
+  }
+
+  // Reviews keywords
+  if (
+    lower.includes('review') ||
+    lower.includes('need to review') ||
+    lower.includes('assigned to me') ||
+    lower.includes('certif') ||
+    lower.includes('access review')
+  ) {
+    // Check if it's certification or security review
+    if (lower.includes('certif') || lower.includes('campaign')) {
+      return { type: 'certifications', query: message };
+    }
+    return { type: 'reviews', query: message };
+  }
+
+  // Settings keywords
+  if (
+    lower.includes('setting') ||
+    lower.includes('notification') ||
+    lower.includes('digest') ||
+    lower.includes('preference') ||
+    lower.includes('email frequency')
+  ) {
+    return { type: 'settings', query: message };
+  }
+
+  return { type: 'none', query: message };
+}
+
 // Read-only tools allowed in chat
 const ALLOWED_TOOLS = [
   'list_manageable_apps',
@@ -657,12 +726,153 @@ export async function POST(request: NextRequest) {
 
     console.log('[Chat] Processing chat with', messages.length, 'messages');
 
-    // 3. Deterministic pre-router for app-specific governance requests
+    // 2a. Check for end-user governance queries (My Requests, My Catalog, etc.)
+    // These use userAccessToken, not mcpAccessToken (delegated admin)
     const latestUserMessage = messages[messages.length - 1];
     const userText =
       typeof latestUserMessage?.content === 'string'
         ? latestUserMessage.content
         : '';
+
+    const governanceIntent = detectGovernanceIntent(userText);
+
+    if (governanceIntent.type !== 'none') {
+      console.log('[Chat] Detected governance intent:', governanceIntent.type);
+
+      // Check if user has userAccessToken for end-user APIs
+      if (!session.userAccessToken) {
+        return NextResponse.json({
+          message:
+            'User access token not found. Please log in again to access your governance data.',
+        });
+      }
+
+      try {
+        let endpoint: string;
+        let queryParams: string = '';
+
+        switch (governanceIntent.type) {
+          case 'requests':
+            endpoint = '/api/governance/me/requests';
+            break;
+          case 'catalog':
+            endpoint = '/api/governance/me/catalog';
+            break;
+          case 'reviews':
+            endpoint = '/api/governance/me/security-access-reviews';
+            break;
+          case 'certifications':
+            endpoint = '/api/governance/me/access-certification-reviews';
+            break;
+          case 'settings':
+            endpoint = '/api/governance/me/settings';
+            break;
+          default:
+            endpoint = '';
+        }
+
+        // Build query params if provided
+        if (governanceIntent.params) {
+          const params = new URLSearchParams();
+          if (governanceIntent.params.limit)
+            params.append('limit', String(governanceIntent.params.limit));
+          if (governanceIntent.params.sortBy)
+            params.append('sortBy', governanceIntent.params.sortBy);
+          if (governanceIntent.params.sortOrder)
+            params.append('sortOrder', governanceIntent.params.sortOrder);
+          if (governanceIntent.params.campaignStatus)
+            params.append('campaignStatus', governanceIntent.params.campaignStatus);
+
+          if (params.toString()) {
+            queryParams = `?${params.toString()}`;
+          }
+        }
+
+        // Fetch data from governance API
+        const fullUrl = `${request.nextUrl.origin}${endpoint}${queryParams}`;
+        console.log('[Chat] Fetching governance data from:', fullUrl);
+
+        const govResponse = await fetch(fullUrl, {
+          headers: {
+            Cookie: request.headers.get('cookie') || '',
+          },
+        });
+
+        const govData = await govResponse.json();
+
+        if (govData.error) {
+          return NextResponse.json({
+            message: `Error fetching ${governanceIntent.type}: ${govData.error.message}`,
+          });
+        }
+
+        // Format data for Claude
+        const dataCount = govData.data?.length || 0;
+        const dataPreview =
+          dataCount > 0
+            ? JSON.stringify(govData.data.slice(0, 5), null, 2)
+            : 'No items found';
+
+        const systemPrompt = `You are a helpful governance assistant. The user asked: "${userText}"
+
+I've fetched their ${governanceIntent.type} data from Okta Governance. Here's what I found:
+
+**Count:** ${dataCount} items
+**Data Preview (first 5 items):**
+\`\`\`json
+${dataPreview}
+\`\`\`
+
+Please provide a human-readable summary of this data. Format it nicely with:
+- Clear headings
+- Bullet points for lists
+- Status indicators where relevant
+- Dates formatted readably
+
+Be concise but informative. If there are no items, suggest what the user might do next.`;
+
+        // Call LiteLLM to format the response
+        const litellmResponse = await fetch(`${config.mcp.baseUrl}/chat/completions`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+          },
+          body: JSON.stringify({
+            model: 'claude-3-5-sonnet-20241022',
+            messages: [
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: userText },
+            ],
+            temperature: 0.3,
+            max_tokens: 2000,
+          }),
+        });
+
+        if (!litellmResponse.ok) {
+          const errorText = await litellmResponse.text();
+          console.error('[Chat] LiteLLM error:', errorText);
+          return NextResponse.json({
+            message: `Found ${dataCount} ${governanceIntent.type} items, but failed to format the response.`,
+          });
+        }
+
+        const litellmData = await litellmResponse.json();
+        const formattedMessage =
+          litellmData.choices?.[0]?.message?.content || `Found ${dataCount} items.`;
+
+        return NextResponse.json({
+          message: formattedMessage,
+        });
+      } catch (error: any) {
+        console.error('[Chat] Governance intent handling error:', error);
+        return NextResponse.json({
+          message: `Error processing ${governanceIntent.type} request: ${error.message}`,
+        });
+      }
+    }
+
+    // 3. Deterministic pre-router for app-specific governance requests
     const lowerText = userText.toLowerCase().trim();
 
     // Check for confirmation or cancellation of pending action
