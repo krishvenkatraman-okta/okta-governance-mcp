@@ -56,6 +56,76 @@ interface GovernanceIntent {
 }
 
 /**
+ * Parsed access request intent with extracted field values
+ */
+interface ParsedAccessIntent {
+  resourceName?: string;
+  entitlementName?: string;
+  duration?: string;
+  requestedFor?: string;
+  justification?: string;
+  isComplete: boolean;
+}
+
+/**
+ * Parse complete access request from user message
+ * Extracts resource, duration, delegation, justification if provided
+ * Example: "I need access to Adobe Express Bundle for 2 hours"
+ */
+function parseAccessRequestIntent(userMessage: string): ParsedAccessIntent {
+  const lower = userMessage.toLowerCase();
+  const result: ParsedAccessIntent = { isComplete: false };
+
+  // Extract resource: "access to Adobe" or "request Adobe"
+  const resourceMatch = userMessage.match(/(?:access to|request|for)\s+([A-Za-z0-9\s\-\.]+?)(?:\s+(?:express|pro|bundle|for|access))?/i);
+  if (resourceMatch) {
+    result.resourceName = resourceMatch[1].trim();
+  }
+
+  // Extract entitlement: "Adobe Express Bundle" or "Express"
+  const entitlementMatch = userMessage.match(/(Express Bundle|Pro Bundle|Creative Cloud Bundle|Express|Pro|Creative Cloud)/i);
+  if (entitlementMatch) {
+    result.entitlementName = entitlementMatch[1];
+  }
+
+  // Extract duration: "2 hours", "7 days", "2 weeks"
+  const durationMatch = userMessage.match(/(?:for|need)\s+(\d+)\s+(hour|day|week|month)s?/i);
+  if (durationMatch) {
+    const amount = parseInt(durationMatch[1], 10);
+    const unit = durationMatch[2].toLowerCase();
+
+    if (unit.startsWith('hour')) {
+      result.duration = `PT${amount}H`;
+    } else if (unit.startsWith('day')) {
+      result.duration = `P${amount}D`;
+    } else if (unit.startsWith('week')) {
+      result.duration = `P${amount * 7}D`;
+    } else if (unit.startsWith('month')) {
+      result.duration = `P${amount}M`;
+    }
+  }
+
+  // Extract delegation: "for myself" or "for john@example.com"
+  const delegationMatch = userMessage.match(/for\s+(myself|me|([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}))/i);
+  if (delegationMatch) {
+    result.requestedFor = delegationMatch[1];
+  }
+
+  // Extract justification: "because", "reason", "for"
+  const justificationMatch = userMessage.match(/(?:because|reason|need|require)[\s:]+(.{10,100})/i);
+  if (justificationMatch) {
+    result.justification = justificationMatch[1].trim();
+  }
+
+  // Check if we have all required fields
+  if (result.resourceName && result.duration) {
+    result.isComplete = true;
+  }
+
+  return result;
+}
+
+/**
  * Detect if user message is asking for end-user governance data
  * (requests, catalog, reviews, certifications, settings, request_access)
  */
@@ -1483,6 +1553,10 @@ export async function POST(request: NextRequest) {
 
           console.log('[Chat] Initiating access request workflow for:', governanceIntent.resourceName);
 
+          // Parse complete intent to check if user provided all details upfront
+          const parsedIntent = parseAccessRequestIntent(userText);
+          console.log('[AccessRequest] Parsed intent:', JSON.stringify(parsedIntent));
+
           // Step 1: Find parent entry using helper
           const parentEntry = await findParentEntry(
             governanceIntent.resourceName,
@@ -1518,22 +1592,120 @@ export async function POST(request: NextRequest) {
 
             console.log('[AccessRequest] Entry has', childEntries.length, 'child entitlements');
 
-            // Initialize workflow for entitlement selection
-            // Store only IDs to keep session size small
+            // Check if user specified entitlement name in message
+            let selectedChild: any = null;
+            if (parsedIntent.entitlementName) {
+              const lowerEntitlement = parsedIntent.entitlementName.toLowerCase();
+              selectedChild = childEntries.find(
+                (entry: any) =>
+                  entry.name?.toLowerCase().includes(lowerEntitlement) ||
+                  entry.displayName?.toLowerCase().includes(lowerEntitlement) ||
+                  lowerEntitlement.includes(entry.name?.toLowerCase()) ||
+                  lowerEntitlement.includes(entry.displayName?.toLowerCase())
+              );
+            }
+
+            if (!selectedChild) {
+              // No match or no entitlement specified - show options
+              // Initialize workflow for entitlement selection
+              // Store only IDs to keep session size small
+              session.pendingAccessRequestWorkflow = {
+                stage: 'awaiting_entitlement_selection',
+                resourceName: parentEntry.displayName || parentEntry.name,
+                parentEntryId: parentEntry.id,
+                childEntryIds: childEntries.map((e: any) => e.id),
+              };
+              await session.save();
+
+              const options = childEntries
+                .map((e: any, idx: number) => `${idx + 1}. ${e.displayName || e.name}`)
+                .join('\n');
+
+              return NextResponse.json({
+                message: `**${parentEntry.displayName || parentEntry.name}** has multiple access levels:\n\n${options}\n\nWhich one would you like to request?`,
+              });
+            }
+
+            // User specified entitlement and we found a match - use it
+            console.log('[AccessRequest] Smart parsing matched entitlement:', selectedChild.name);
+            // Continue with this entry as if it was the parent
+            const entryToUse = selectedChild;
+            const fields = await getRequestFields(session.userAccessToken!, oktaDomain, entryToUse.id);
+            const requiredFields = fields.filter((f: any) => f.required);
+
+            // Check if user provided all required field values
+            if (parsedIntent.isComplete && requiredFields.length > 0) {
+              // Pre-fill collected values from parsed intent
+              const collectedValues: Record<string, any> = {};
+
+              for (const field of requiredFields) {
+                if (field.id === 'ACCESS_DURATION' && parsedIntent.duration) {
+                  collectedValues[field.id] = parsedIntent.duration;
+                } else if (field.id === 'OKTA_REQUESTED_FOR' && parsedIntent.requestedFor) {
+                  collectedValues[field.id] = parsedIntent.requestedFor;
+                } else if (field.id === 'JUSTIFICATION' && parsedIntent.justification) {
+                  collectedValues[field.id] = parsedIntent.justification;
+                }
+              }
+
+              // Check if we have all required fields
+              const missingFields = requiredFields.filter((f: any) => !collectedValues[f.id]);
+
+              if (missingFields.length === 0) {
+                // All fields provided - create request directly
+                console.log('[AccessRequest] All required fields provided via smart parsing, creating request');
+                try {
+                  const createdRequest = await createAccessRequest(
+                    session.userAccessToken!,
+                    oktaDomain,
+                    entryToUse.id,
+                    collectedValues
+                  );
+
+                  return NextResponse.json({
+                    message: `✅ **Access request created successfully!**\n\n**Resource:** ${parentEntry.displayName || parentEntry.name}\n**Access Level:** ${entryToUse.displayName || entryToUse.name}\n**Request ID:** ${createdRequest.id}\n**Status:** ${createdRequest.status || 'PENDING'}\n\nYou'll be notified when your request is approved.`,
+                  });
+                } catch (error: any) {
+                  return NextResponse.json({
+                    message: `❌ Failed to create access request: ${error.message}`,
+                  });
+                }
+              }
+
+              // Some fields missing - start workflow with pre-filled values
+              session.pendingAccessRequestWorkflow = {
+                stage: 'collecting_fields',
+                resourceName: parentEntry.displayName || parentEntry.name,
+                selectedEntryId: entryToUse.id,
+                selectedEntryName: entryToUse.displayName || entryToUse.name,
+                requestFieldIds: requiredFields.map((f: any) => f.id),
+                collectedValues,
+                currentFieldIndex: Object.keys(collectedValues).length,
+              };
+              await session.save();
+
+              const nextFieldIndex = Object.keys(collectedValues).length;
+              return NextResponse.json({
+                message: askForNextField(requiredFields[nextFieldIndex], nextFieldIndex, requiredFields.length),
+              });
+            }
+
+            // No complete intent - fall through to normal workflow below
+            // (will be handled by the "Step 3" code below)
+            // For now, start field collection workflow
             session.pendingAccessRequestWorkflow = {
-              stage: 'awaiting_entitlement_selection',
+              stage: 'collecting_fields',
               resourceName: parentEntry.displayName || parentEntry.name,
-              parentEntryId: parentEntry.id,
-              childEntryIds: childEntries.map((e: any) => e.id),
+              selectedEntryId: entryToUse.id,
+              selectedEntryName: entryToUse.displayName || entryToUse.name,
+              requestFieldIds: requiredFields.map((f: any) => f.id),
+              collectedValues: {},
+              currentFieldIndex: 0,
             };
             await session.save();
 
-            const options = childEntries
-              .map((e: any, idx: number) => `${idx + 1}. ${e.displayName || e.name}`)
-              .join('\n');
-
             return NextResponse.json({
-              message: `**${parentEntry.displayName || parentEntry.name}** has multiple access levels:\n\n${options}\n\nWhich one would you like to request?`,
+              message: askForNextField(requiredFields[0], 0, requiredFields.length),
             });
           }
 
@@ -1567,21 +1739,60 @@ export async function POST(request: NextRequest) {
             }
           }
 
-          // Step 4: Required fields - start field collection workflow
+          // Step 4: Required fields - check if parsed intent has values
+          // Pre-fill collected values from parsed intent if available
+          const collectedValues: Record<string, any> = {};
+
+          for (const field of requiredFields) {
+            if (field.id === 'ACCESS_DURATION' && parsedIntent.duration) {
+              collectedValues[field.id] = parsedIntent.duration;
+            } else if (field.id === 'OKTA_REQUESTED_FOR' && parsedIntent.requestedFor) {
+              collectedValues[field.id] = parsedIntent.requestedFor;
+            } else if (field.id === 'JUSTIFICATION' && parsedIntent.justification) {
+              collectedValues[field.id] = parsedIntent.justification;
+            }
+          }
+
+          // Check if we have all required fields from smart parsing
+          const missingFields = requiredFields.filter((f: any) => !collectedValues[f.id]);
+
+          if (missingFields.length === 0) {
+            // All fields provided - create request directly
+            console.log('[AccessRequest] All required fields provided via smart parsing, creating request');
+            try {
+              const createdRequest = await createAccessRequest(
+                session.userAccessToken!,
+                oktaDomain,
+                parentEntry.id,
+                collectedValues
+              );
+
+              return NextResponse.json({
+                message: `✅ **Access request created successfully!**\n\n**Resource:** ${parentEntry.displayName || parentEntry.name}\n**Request ID:** ${createdRequest.id}\n**Status:** ${createdRequest.status || 'PENDING'}\n\nYou'll be notified when your request is approved.`,
+              });
+            } catch (error: any) {
+              return NextResponse.json({
+                message: `❌ Failed to create access request: ${error.message}`,
+              });
+            }
+          }
+
+          // Some fields missing or not provided - start field collection workflow
           // Store only field IDs to keep session size small
+          const startFieldIndex = Object.keys(collectedValues).length;
           session.pendingAccessRequestWorkflow = {
             stage: 'collecting_fields',
             resourceName: parentEntry.displayName || parentEntry.name,
             selectedEntryId: parentEntry.id,
             selectedEntryName: parentEntry.displayName || parentEntry.name,
             requestFieldIds: requiredFields.map((f: any) => f.id),
-            collectedValues: {},
-            currentFieldIndex: 0,
+            collectedValues,
+            currentFieldIndex: startFieldIndex,
           };
           await session.save();
 
           return NextResponse.json({
-            message: askForNextField(requiredFields[0], 0, requiredFields.length),
+            message: askForNextField(requiredFields[startFieldIndex], startFieldIndex, requiredFields.length),
           });
         }
 
