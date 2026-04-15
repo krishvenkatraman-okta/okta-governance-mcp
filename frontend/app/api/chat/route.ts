@@ -137,7 +137,9 @@ async function listCatalogEntries(
   oktaDomain: string
 ): Promise<any[]> {
   try {
-    const url = `https://${oktaDomain}/governance/api/v2/my/catalogs/default/entries?limit=100`;
+    // v2 API requires filter parameter for top-level entries
+    // filter=not(parent pr) gets entries without a parent (top-level only)
+    const url = `https://${oktaDomain}/governance/api/v2/my/catalogs/default/entries?filter=not(parent%20pr)&limit=100`;
     console.log('[AccessRequest] Fetching from:', url);
 
     const response = await fetch(url, {
