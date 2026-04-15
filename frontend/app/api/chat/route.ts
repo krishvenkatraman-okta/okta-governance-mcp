@@ -560,15 +560,25 @@ async function handleAwaitingEntitlementSelection(
   oktaDomain: string
 ): Promise<string> {
   const workflow = session.pendingAccessRequestWorkflow;
-  const childEntries = workflow.childEntries || [];
+  const childEntryIds = workflow.childEntryIds || [];
 
   console.log('[AccessRequest] Handling entitlement selection');
   console.log('[AccessRequest] User message:', userMessage);
-  console.log('[AccessRequest] Available children:', childEntries.length);
+  console.log('[AccessRequest] Available children IDs:', childEntryIds.length);
+
+  // Fetch full child entries from IDs
+  const childEntries = await Promise.all(
+    childEntryIds.map((id: string) => getCatalogEntry(userAccessToken, oktaDomain, id))
+  );
+
+  // Filter out any failed fetches (null entries)
+  const validChildEntries = childEntries.filter((e: any) => e !== null);
+
+  console.log('[AccessRequest] Fetched', validChildEntries.length, 'valid child entries');
 
   // Find matching entitlement
   const lowerMessage = userMessage.toLowerCase().trim();
-  const selected = childEntries.find(
+  const selected = validChildEntries.find(
     (entry: any) =>
       entry.name?.toLowerCase().includes(lowerMessage) ||
       entry.displayName?.toLowerCase().includes(lowerMessage) ||
@@ -577,7 +587,7 @@ async function handleAwaitingEntitlementSelection(
   );
 
   if (!selected) {
-    const options = childEntries
+    const options = validChildEntries
       .map((e: any, idx: number) => `${idx + 1}. ${e.displayName || e.name}`)
       .join('\n');
     return `I didn't find that option. Please select from:\n\n${options}`;
@@ -1493,11 +1503,12 @@ export async function POST(request: NextRequest) {
             console.log('[AccessRequest] Entry has', childEntries.length, 'child entitlements');
 
             // Initialize workflow for entitlement selection
+            // Store only IDs to keep session size small
             session.pendingAccessRequestWorkflow = {
               stage: 'awaiting_entitlement_selection',
               resourceName: parentEntry.displayName || parentEntry.name,
-              parentEntry,
-              childEntries,
+              parentEntryId: parentEntry.id,
+              childEntryIds: childEntries.map((e: any) => e.id),
             };
             await session.save();
 

@@ -69,8 +69,8 @@ export interface SessionData {
       | 'collecting_fields'
       | 'awaiting_confirmation';
     resourceName: string;
-    parentEntry?: any; // Parent catalog entry
-    childEntries?: any[]; // Available child entitlements
+    parentEntryId?: string; // Parent catalog entry ID (stored instead of full object)
+    childEntryIds?: string[]; // Child entitlement IDs (stored instead of full objects)
     selectedEntryId?: string; // Selected entitlement ID
     selectedEntryName?: string; // Selected entitlement name for display
     requestFields?: any[]; // Required fields for request
