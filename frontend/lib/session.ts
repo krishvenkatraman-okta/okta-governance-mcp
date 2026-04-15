@@ -32,6 +32,11 @@ export interface SessionData {
   idJagExpiresAt?: number;
   mcpAccessTokenExpiresAt?: number;
 
+  // User's access token from OIDC (for end-user governance APIs)
+  // Separate from mcpAccessToken (which is for delegated admin)
+  userAccessToken?: string;
+  userAccessTokenExpiresAt?: number;
+
   // User info (always kept)
   userId?: string;
   userEmail?: string;
