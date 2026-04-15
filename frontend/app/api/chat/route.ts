@@ -138,7 +138,7 @@ async function listCatalogEntries(
 ): Promise<any[]> {
   try {
     const url = `https://${oktaDomain}/governance/api/v2/my/catalogs/default/entries?limit=100`;
-    console.log('[AccessRequest] Fetching catalog entries from:', url);
+    console.log('[AccessRequest] Fetching from:', url);
 
     const response = await fetch(url, {
       headers: {
@@ -147,12 +147,20 @@ async function listCatalogEntries(
       },
     });
 
+    console.log('[AccessRequest] Response status:', response.status);
+
+    const data = await response.json();
+    console.log('[AccessRequest] Response body:', JSON.stringify(data, null, 2));
+
     if (!response.ok) {
-      console.error('[AccessRequest] Failed to fetch catalog entries:', response.status);
+      console.error('[AccessRequest] Error response:', {
+        status: response.status,
+        statusText: response.statusText,
+        body: data,
+      });
       return [];
     }
 
-    const data = await response.json();
     const entries = data._embedded?.entries || data.entries || [];
     console.log('[AccessRequest] Retrieved', entries.length, 'catalog entries');
     return entries;
