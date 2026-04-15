@@ -37,7 +37,9 @@
  *    - client_assertion_type=urn:ietf:params:oauth:client-assertion-type:jwt-bearer
  *    - client_assertion=<signed_jwt> (iss/sub=clientId, aud=ORG token endpoint)
  * 6. Receive id_token and access_token
- * 7. Store id_token and access_token in secure session
+ * 7. Store id_token, access_token, and user info in secure session
+ *    - id_token: Used for ID-JAG exchange (later removed after use)
+ *    - access_token: Stored as userAccessToken for end-user governance APIs
  * 8. Extract and store user info from id_token
  * 9. Redirect to /agent
  *
@@ -192,8 +194,8 @@ export async function GET(request: NextRequest) {
     // 6. Store tokens and user info in session
     // COOKIE SIZE OPTIMIZATION: Only store minimal required data
     // - idToken: will be used for ID-JAG exchange, then removed
+    // - userAccessToken: stored for end-user governance APIs
     // - userId, userEmail: kept for user identification
-    // - orgAccessToken: NOT stored (not needed for token exchanges)
     session.idToken = idToken;
     session.userId = userId;
 
@@ -204,6 +206,14 @@ export async function GET(request: NextRequest) {
     // Calculate and store ID token expiration
     if (decoded.exp) {
       session.idTokenExpiresAt = decoded.exp as number;
+    }
+
+    // Store user's access token for end-user governance APIs
+    // This is separate from mcpAccessToken (used for delegated admin)
+    session.userAccessToken = tokenResponse.access_token;
+    if (tokenResponse.expires_in) {
+      // Calculate expiration timestamp (current time + expires_in seconds)
+      session.userAccessTokenExpiresAt = Math.floor(Date.now() / 1000) + tokenResponse.expires_in;
     }
 
     // Clear PKCE parameters (no longer needed)
