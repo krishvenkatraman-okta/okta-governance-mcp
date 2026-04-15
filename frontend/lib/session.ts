@@ -72,9 +72,22 @@ export interface SessionData {
     parentEntry?: any; // Parent catalog entry
     childEntries?: any[]; // Available child entitlements
     selectedEntryId?: string; // Selected entitlement ID
+    selectedEntryName?: string; // Selected entitlement name for display
     requestFields?: any[]; // Required fields for request
     collectedValues?: Record<string, any>; // Field values collected so far
     currentFieldIndex?: number; // Which field we're collecting
+  };
+
+  // Pending label workflow (for label value selection flow)
+  pendingLabelWorkflow?: {
+    stage: 'awaiting_value_selection';
+    toolName: string;
+    action: string;
+    appId: string;
+    appName: string | null;
+    labelName: string;
+    availableValues: string[];
+    label?: any; // Label metadata including labelId
   };
 }
 

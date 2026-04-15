@@ -445,6 +445,299 @@ function parseFieldValue(fieldId: string, fieldType: string, userInput: string):
   }
 }
 
+/**
+ * Format ISO 8601 duration for display
+ */
+function formatDurationForDisplay(iso8601: string): string {
+  // "P7D" → "7 days", "P14D" → "14 days", "PT24H" → "24 hours"
+  const match = iso8601.match(/P(?:(\d+)M)?(?:(\d+)D)?(?:T(\d+)H)?/);
+  if (!match) return iso8601;
+
+  const months = match[1];
+  const days = match[2];
+  const hours = match[3];
+
+  if (months) return `${months} month${months !== '1' ? 's' : ''}`;
+  if (days) return `${days} day${days !== '1' ? 's' : ''}`;
+  if (hours) return `${hours} hour${hours !== '1' ? 's' : ''}`;
+  return iso8601;
+}
+
+/**
+ * Generate field question based on field type
+ */
+function askForNextField(field: any, index: number, total: number): string {
+  let prompt = `**Step ${index + 1} of ${total}**: ${field.id}\n\n`;
+
+  switch (field.type) {
+    case 'DURATION':
+      prompt += `How long do you need access?\n`;
+      prompt += `Examples: "7 days", "2 weeks", "24 hours"`;
+      if (field.value) {
+        prompt += `\nDefault: ${formatDurationForDisplay(field.value)}`;
+      }
+      if (field.maximumValue) {
+        prompt += `\nMaximum: ${formatDurationForDisplay(field.maximumValue)}`;
+      }
+      break;
+
+    case 'OKTA_USER_ID':
+      prompt += `Is this request for yourself or someone else?\n`;
+      prompt += `Reply "myself" or provide their email address.`;
+      break;
+
+    case 'STRING':
+    case 'TEXT':
+      if (field.id === 'JUSTIFICATION') {
+        prompt += `Why do you need this access? (Provide a brief justification)`;
+      } else {
+        prompt += `Please provide: ${field.label || field.name || field.id}`;
+      }
+      if (field.description) {
+        prompt += `\n${field.description}`;
+      }
+      break;
+
+    case 'ENUM':
+      const options = field.options?.map((o: any) => o.label || o.value).join(', ');
+      prompt += `Select one: ${options || 'N/A'}`;
+      break;
+
+    case 'BOOLEAN':
+      prompt += `${field.label || field.name || field.id}? (yes/no)`;
+      break;
+
+    default:
+      prompt += `Please provide a value for ${field.label || field.name || field.id}`;
+  }
+
+  return prompt;
+}
+
+/**
+ * Show confirmation preview before creating request
+ */
+function showConfirmationPreview(workflow: any): string {
+  const lines = ['**Ready to submit your access request:**', ''];
+
+  lines.push(`📦 **Resource:** ${workflow.resourceName || 'N/A'}`);
+
+  if (workflow.selectedEntryName) {
+    lines.push(`🎯 **Access Level:** ${workflow.selectedEntryName}`);
+  }
+
+  if (workflow.collectedValues && Object.keys(workflow.collectedValues).length > 0) {
+    lines.push('');
+    lines.push('**Details:**');
+
+    for (const [fieldId, value] of Object.entries(workflow.collectedValues)) {
+      const field = workflow.requestFields?.find((f: any) => f.id === fieldId);
+      const label = field?.label || field?.name || fieldId;
+
+      // Format value for display
+      let displayValue = value;
+      if (field?.type === 'DURATION' && typeof value === 'string') {
+        displayValue = formatDurationForDisplay(value as string);
+      }
+
+      lines.push(`  • ${label}: ${displayValue}`);
+    }
+  }
+
+  lines.push('');
+  lines.push('Type **"confirm"** to submit, or **"cancel"** to abort.');
+
+  return lines.join('\n');
+}
+
+/**
+ * Stage Handler: Awaiting Entitlement Selection
+ */
+async function handleAwaitingEntitlementSelection(
+  userMessage: string,
+  session: any,
+  userAccessToken: string,
+  oktaDomain: string
+): Promise<string> {
+  const workflow = session.pendingAccessRequestWorkflow;
+  const childEntries = workflow.childEntries || [];
+
+  console.log('[AccessRequest] Handling entitlement selection');
+  console.log('[AccessRequest] User message:', userMessage);
+  console.log('[AccessRequest] Available children:', childEntries.length);
+
+  // Find matching entitlement
+  const lowerMessage = userMessage.toLowerCase().trim();
+  const selected = childEntries.find(
+    (entry: any) =>
+      entry.name?.toLowerCase().includes(lowerMessage) ||
+      entry.displayName?.toLowerCase().includes(lowerMessage) ||
+      lowerMessage.includes(entry.name?.toLowerCase()) ||
+      lowerMessage.includes(entry.displayName?.toLowerCase())
+  );
+
+  if (!selected) {
+    const options = childEntries
+      .map((e: any, idx: number) => `${idx + 1}. ${e.displayName || e.name}`)
+      .join('\n');
+    return `I didn't find that option. Please select from:\n\n${options}`;
+  }
+
+  console.log('[AccessRequest] Selected entry:', selected.name);
+
+  // Get request fields for selected entry
+  const fields = await getRequestFields(userAccessToken, oktaDomain, selected.id);
+
+  console.log('[AccessRequest] Retrieved', fields.length, 'fields for selected entry');
+
+  // Filter to only required fields
+  const requiredFields = fields.filter((f: any) => f.required);
+
+  console.log('[AccessRequest] Required fields:', requiredFields.length);
+
+  // Update workflow
+  workflow.stage = requiredFields.length > 0 ? 'collecting_fields' : 'awaiting_confirmation';
+  workflow.selectedEntryId = selected.id;
+  workflow.selectedEntryName = selected.displayName || selected.name;
+  workflow.requestFields = requiredFields;
+  workflow.collectedValues = {};
+  workflow.currentFieldIndex = 0;
+
+  await session.save();
+
+  // If no required fields, show confirmation immediately
+  if (requiredFields.length === 0) {
+    return showConfirmationPreview(workflow);
+  }
+
+  // Ask for first field
+  return askForNextField(requiredFields[0], 0, requiredFields.length);
+}
+
+/**
+ * Stage Handler: Collecting Fields
+ */
+async function handleCollectingFields(
+  userMessage: string,
+  session: any,
+  userAccessToken: string,
+  oktaDomain: string
+): Promise<string> {
+  const workflow = session.pendingAccessRequestWorkflow;
+  const currentFieldIndex = workflow.currentFieldIndex || 0;
+  const field = workflow.requestFields[currentFieldIndex];
+
+  if (!field) {
+    console.error('[AccessRequest] No field at index:', currentFieldIndex);
+    return 'Error: No field to process. Please start over.';
+  }
+
+  console.log('[AccessRequest] Collecting field:', field.id);
+  console.log('[AccessRequest] Field type:', field.type);
+  console.log('[AccessRequest] User input:', userMessage);
+
+  // Parse field value
+  let parsedValue: any;
+  try {
+    parsedValue = parseFieldValue(field.id, field.type, userMessage);
+    console.log('[AccessRequest] Parsed value:', parsedValue);
+  } catch (error: any) {
+    console.error('[AccessRequest] Parse error:', error.message);
+    return `Invalid value for ${field.id}: ${error.message}\n\nPlease try again.`;
+  }
+
+  // Store value
+  workflow.collectedValues[field.id] = parsedValue;
+
+  console.log('[AccessRequest] Collected values so far:', Object.keys(workflow.collectedValues).length);
+
+  // Check if more fields needed
+  if (currentFieldIndex < workflow.requestFields.length - 1) {
+    // Move to next field
+    workflow.currentFieldIndex = currentFieldIndex + 1;
+    const nextField = workflow.requestFields[workflow.currentFieldIndex];
+
+    await session.save();
+
+    return askForNextField(nextField, workflow.currentFieldIndex, workflow.requestFields.length);
+  } else {
+    // All fields collected, show confirmation
+    workflow.stage = 'awaiting_confirmation';
+    await session.save();
+
+    console.log('[AccessRequest] All fields collected, showing confirmation');
+    return showConfirmationPreview(workflow);
+  }
+}
+
+/**
+ * Stage Handler: Awaiting Confirmation
+ */
+async function handleAwaitingConfirmation(
+  userMessage: string,
+  session: any,
+  userAccessToken: string,
+  oktaDomain: string
+): Promise<string> {
+  const workflow = session.pendingAccessRequestWorkflow;
+  const lowerMessage = userMessage.toLowerCase().trim();
+
+  console.log('[AccessRequest] Handling confirmation');
+  console.log('[AccessRequest] User message:', userMessage);
+
+  if (
+    lowerMessage === 'yes' ||
+    lowerMessage === 'confirm' ||
+    lowerMessage === 'y' ||
+    lowerMessage.includes('confirm')
+  ) {
+    // Create request
+    console.log('[AccessRequest] Creating access request');
+    console.log('[AccessRequest] Entry ID:', workflow.selectedEntryId);
+    console.log('[AccessRequest] Collected values:', workflow.collectedValues);
+
+    try {
+      const createdRequest = await createAccessRequest(
+        userAccessToken,
+        oktaDomain,
+        workflow.selectedEntryId,
+        workflow.collectedValues
+      );
+
+      // Clear workflow
+      session.pendingAccessRequestWorkflow = undefined;
+      await session.save();
+
+      console.log('[AccessRequest] Request created:', createdRequest.id);
+
+      return `✅ **Access request created successfully!**\n\n**Request ID:** ${createdRequest.id}\n**Status:** ${createdRequest.status || 'PENDING'}\n\nYou'll be notified when your request is approved.`;
+    } catch (error: any) {
+      console.error('[AccessRequest] Error creating request:', error.message);
+
+      // Clear workflow on error
+      session.pendingAccessRequestWorkflow = undefined;
+      await session.save();
+
+      return `❌ **Failed to create access request**\n\nError: ${error.message}`;
+    }
+  } else if (
+    lowerMessage === 'no' ||
+    lowerMessage === 'cancel' ||
+    lowerMessage === 'n' ||
+    lowerMessage.includes('cancel')
+  ) {
+    // Cancel request
+    console.log('[AccessRequest] Request cancelled by user');
+
+    session.pendingAccessRequestWorkflow = undefined;
+    await session.save();
+
+    return '❌ Access request cancelled.';
+  } else {
+    return `Please type **"confirm"** to submit the request, or **"cancel"** to abort.`;
+  }
+}
+
 // Read-only tools allowed in chat
 const ALLOWED_TOOLS = [
   'list_manageable_apps',
@@ -1067,6 +1360,72 @@ export async function POST(request: NextRequest) {
         ? latestUserMessage.content
         : '';
 
+    // 2b. Check for active access request workflow
+    if (session.pendingAccessRequestWorkflow) {
+      console.log('[Chat] Active workflow detected, stage:', session.pendingAccessRequestWorkflow.stage);
+
+      if (!session.userAccessToken) {
+        return NextResponse.json({
+          message: 'Session expired. Please log in again to continue your access request.',
+        });
+      }
+
+      const oktaDomain = process.env.NEXT_PUBLIC_OKTA_DOMAIN;
+      if (!oktaDomain) {
+        return NextResponse.json({
+          message: 'Okta domain not configured. Cannot process access request.',
+        });
+      }
+
+      let responseMessage: string;
+
+      try {
+        switch (session.pendingAccessRequestWorkflow.stage) {
+          case 'awaiting_entitlement_selection':
+            responseMessage = await handleAwaitingEntitlementSelection(
+              userText,
+              session,
+              session.userAccessToken,
+              oktaDomain
+            );
+            break;
+
+          case 'collecting_fields':
+            responseMessage = await handleCollectingFields(
+              userText,
+              session,
+              session.userAccessToken,
+              oktaDomain
+            );
+            break;
+
+          case 'awaiting_confirmation':
+            responseMessage = await handleAwaitingConfirmation(
+              userText,
+              session,
+              session.userAccessToken,
+              oktaDomain
+            );
+            break;
+
+          default:
+            console.error('[Chat] Unknown workflow stage:', session.pendingAccessRequestWorkflow.stage);
+            session.pendingAccessRequestWorkflow = undefined;
+            await session.save();
+            responseMessage = 'Workflow error. Please start your access request again.';
+        }
+
+        return NextResponse.json({ message: responseMessage });
+      } catch (error: any) {
+        console.error('[Chat] Workflow error:', error.message);
+        session.pendingAccessRequestWorkflow = undefined;
+        await session.save();
+        return NextResponse.json({
+          message: `Error processing access request: ${error.message}. Please start over.`,
+        });
+      }
+    }
+
     const governanceIntent = detectGovernanceIntent(userText);
 
     if (governanceIntent.type !== 'none') {
@@ -1090,98 +1449,112 @@ export async function POST(request: NextRequest) {
             });
           }
 
-          console.log('[Chat] Processing access request for:', governanceIntent.resourceName);
-
-          // Step 1: Get catalog entries
-          const entries = await listCatalogEntries(session.userAccessToken!, oktaDomain);
-
-          if (entries.length === 0) {
+          if (!governanceIntent.resourceName) {
             return NextResponse.json({
-              message: 'No catalog entries available. You may not have permission to request access to any resources.',
+              message: 'Please specify which resource you\'d like to request access to. For example: "Request access to Adobe"',
             });
           }
 
-          // Step 2: Find matching entry
-          let matchedEntry: any = null;
-          if (governanceIntent.resourceName) {
-            const searchTerm = governanceIntent.resourceName.toLowerCase();
-            matchedEntry = entries.find(
-              (entry: any) =>
-                entry.name?.toLowerCase().includes(searchTerm) ||
-                entry.displayName?.toLowerCase().includes(searchTerm) ||
-                entry.description?.toLowerCase().includes(searchTerm)
-            );
-          }
+          console.log('[Chat] Initiating access request workflow for:', governanceIntent.resourceName);
 
-          if (!matchedEntry) {
-            // List available entries
+          // Step 1: Find parent entry using helper
+          const parentEntry = await findParentEntry(
+            governanceIntent.resourceName,
+            session.userAccessToken!,
+            oktaDomain
+          );
+
+          if (!parentEntry) {
+            // Could not find matching entry, list available options
+            const entries = await listCatalogEntries(session.userAccessToken!, oktaDomain);
             const availableList = entries
               .slice(0, 10)
               .map((e: any) => `- ${e.displayName || e.name}`)
               .join('\n');
 
             return NextResponse.json({
-              message: governanceIntent.resourceName
-                ? `I couldn't find "${governanceIntent.resourceName}" in the catalog. Here are some available resources:\n\n${availableList}\n\nPlease specify which one you'd like to request.`
-                : `Please specify which resource you'd like to request. Here are some available options:\n\n${availableList}`,
+              message: `I couldn't find "${governanceIntent.resourceName}" in the catalog. Here are some available resources:\n\n${availableList}\n\nPlease specify which one you'd like to request.`,
             });
           }
 
-          // Step 3: Get request fields
-          const fields = await getRequestFields(session.userAccessToken!, oktaDomain, matchedEntry.id);
-          console.log('[AccessRequest] Fields returned from getRequestFields:', fields.length);
-          console.log('[AccessRequest] Each field structure:');
-          fields.forEach((f: any, idx: number) => {
-            console.log(`[AccessRequest]   Field ${idx}:`, JSON.stringify(f, null, 2));
-            console.log(`[AccessRequest]     - id: ${f.id}`);
-            console.log(`[AccessRequest]     - type: ${f.type}`);
-            console.log(`[AccessRequest]     - label: ${f.label}`);
-            console.log(`[AccessRequest]     - name: ${f.name}`);
-            console.log(`[AccessRequest]     - required: ${f.required}`);
-            console.log(`[AccessRequest]     - description: ${f.description}`);
-          });
+          console.log('[AccessRequest] Found parent entry:', parentEntry.name, 'requestable:', parentEntry.requestable);
 
-          // Step 4: Check if fields are required
-          const requiredFields = fields.filter((f: any) => f.required);
-          console.log('[AccessRequest] Required fields count:', requiredFields.length);
+          // Step 2: Check if entry is directly requestable
+          if (parentEntry.requestable === false) {
+            // Has child entitlements - need selection
+            const childEntries = await getChildEntries(parentEntry.id, session.userAccessToken!, oktaDomain);
 
-          if (requiredFields.length > 0) {
-            // Need to collect field values
-            const fieldList = requiredFields
-              .map((f: any) => {
-                const fieldName = f.label || f.name || f.id || 'Unknown field';
-                const fieldDesc = f.description || '';
-                console.log(`[AccessRequest] Formatting field: name="${fieldName}", desc="${fieldDesc}"`);
-                return `- ${fieldName}: ${fieldDesc}`;
-              })
+            if (childEntries.length === 0) {
+              return NextResponse.json({
+                message: `**${parentEntry.displayName || parentEntry.name}** requires selecting an access level, but none are available. Please contact your administrator.`,
+              });
+            }
+
+            console.log('[AccessRequest] Entry has', childEntries.length, 'child entitlements');
+
+            // Initialize workflow for entitlement selection
+            session.pendingAccessRequestWorkflow = {
+              stage: 'awaiting_entitlement_selection',
+              resourceName: parentEntry.displayName || parentEntry.name,
+              parentEntry,
+              childEntries,
+            };
+            await session.save();
+
+            const options = childEntries
+              .map((e: any, idx: number) => `${idx + 1}. ${e.displayName || e.name}`)
               .join('\n');
 
             return NextResponse.json({
-              message: `To request access to **${matchedEntry.displayName || matchedEntry.name}**, I need some additional information:\n\n${fieldList}\n\nPlease provide the required information to proceed with your request.`,
+              message: `**${parentEntry.displayName || parentEntry.name}** has multiple access levels:\n\n${options}\n\nWhich one would you like to request?`,
             });
           }
 
-          // Step 5: Create access request (no required fields)
-          try {
-            const requestData = {
-              justification: `Access requested via chat for ${matchedEntry.displayName || matchedEntry.name}`,
-            };
+          // Step 3: Entry is directly requestable - get request fields
+          const fields = await getRequestFields(session.userAccessToken!, oktaDomain, parentEntry.id);
+          const requiredFields = fields.filter((f: any) => f.required);
 
-            const createdRequest = await createAccessRequest(
-              session.userAccessToken!,
-              oktaDomain,
-              matchedEntry.id,
-              requestData
-            );
+          console.log('[AccessRequest] Entry is requestable, found', requiredFields.length, 'required fields');
 
-            return NextResponse.json({
-              message: `✅ Successfully created access request for **${matchedEntry.displayName || matchedEntry.name}**\n\nRequest ID: ${createdRequest.id}\nStatus: ${createdRequest.status || 'PENDING'}\n\nYou can check the status of your request by asking "Show my pending requests".`,
-            });
-          } catch (error: any) {
-            return NextResponse.json({
-              message: `❌ Failed to create access request for ${matchedEntry.displayName || matchedEntry.name}: ${error.message}`,
-            });
+          if (requiredFields.length === 0) {
+            // No required fields - create request immediately
+            try {
+              const requestData = {
+                justification: `Access requested via chat for ${parentEntry.displayName || parentEntry.name}`,
+              };
+
+              const createdRequest = await createAccessRequest(
+                session.userAccessToken!,
+                oktaDomain,
+                parentEntry.id,
+                requestData
+              );
+
+              return NextResponse.json({
+                message: `✅ **Access request created successfully!**\n\n**Request ID:** ${createdRequest.id}\n**Status:** ${createdRequest.status || 'PENDING'}\n\nYou'll be notified when your request is approved.`,
+              });
+            } catch (error: any) {
+              return NextResponse.json({
+                message: `❌ Failed to create access request: ${error.message}`,
+              });
+            }
           }
+
+          // Step 4: Required fields - start field collection workflow
+          session.pendingAccessRequestWorkflow = {
+            stage: 'collecting_fields',
+            resourceName: parentEntry.displayName || parentEntry.name,
+            selectedEntryId: parentEntry.id,
+            selectedEntryName: parentEntry.displayName || parentEntry.name,
+            requestFields: requiredFields,
+            collectedValues: {},
+            currentFieldIndex: 0,
+          };
+          await session.save();
+
+          return NextResponse.json({
+            message: askForNextField(requiredFields[0], 0, requiredFields.length),
+          });
         }
 
         // Standard governance data fetching (non-request_access)
