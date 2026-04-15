@@ -516,13 +516,9 @@ function askForNextField(field: any, index: number, total: number): string {
 
 /**
  * Show confirmation preview before creating request
+ * Uses simple label mapping - NO API CALLS to keep session lightweight
  */
-async function showConfirmationPreview(
-  workflow: any,
-  userAccessToken: string,
-  oktaDomain: string,
-  entryId: string
-): Promise<string> {
+function showConfirmationPreview(workflow: any): string {
   const lines = ['**Ready to submit your access request:**', ''];
 
   lines.push(`📦 **Resource:** ${workflow.resourceName || 'N/A'}`);
@@ -535,22 +531,15 @@ async function showConfirmationPreview(
     lines.push('');
     lines.push('**Details:**');
 
-    // Fetch fields to get labels and types
-    const requestFieldIds = workflow.requestFieldIds || [];
-    let fields: any[] = [];
-
-    if (requestFieldIds.length > 0) {
-      const allFields = await getRequestFields(userAccessToken, oktaDomain, entryId);
-      fields = allFields.filter((f: any) => requestFieldIds.includes(f.id));
-    }
-
     for (const [fieldId, value] of Object.entries(workflow.collectedValues)) {
-      const field = fields.find((f: any) => f.id === fieldId);
-      const label = field?.label || field?.name || fieldId;
+      // Use simple label mapping - NO API CALLS
+      let label = fieldId;
+      if (fieldId === 'ACCESS_DURATION') label = 'Duration';
+      if (fieldId === 'OKTA_REQUESTED_FOR') label = 'Requested For';
+      if (fieldId === 'JUSTIFICATION') label = 'Justification';
 
-      // Format value for display
       let displayValue = value;
-      if (field?.type === 'DURATION' && typeof value === 'string') {
+      if (fieldId === 'ACCESS_DURATION' && typeof value === 'string') {
         displayValue = formatDurationForDisplay(value as string);
       }
 
@@ -632,7 +621,7 @@ async function handleAwaitingEntitlementSelection(
 
   // If no required fields, show confirmation immediately
   if (requiredFields.length === 0) {
-    return await showConfirmationPreview(workflow, userAccessToken, oktaDomain, selected.id);
+    return showConfirmationPreview(workflow);
   }
 
   // Ask for first field
@@ -703,7 +692,7 @@ async function handleCollectingFields(
     await session.save();
 
     console.log('[AccessRequest] All fields collected, showing confirmation');
-    return await showConfirmationPreview(workflow, userAccessToken, oktaDomain, entryId);
+    return showConfirmationPreview(workflow);
   }
 }
 
