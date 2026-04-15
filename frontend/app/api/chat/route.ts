@@ -163,7 +163,8 @@ async function listCatalogEntries(
       return [];
     }
 
-    const entries = data._embedded?.entries || data.entries || [];
+    // Postman collection shows response format: { data: [...], _links: {...} }
+    const entries = data.data || [];
     console.log('[AccessRequest] Retrieved', entries.length, 'catalog entries');
     return entries;
   } catch (error: any) {
@@ -230,7 +231,8 @@ async function getRequestFields(
     }
 
     const data = await response.json();
-    const fields = data._embedded?.fields || data.fields || [];
+    // Postman collection shows response format: { data: [...] }
+    const fields = data.data || [];
     console.log('[AccessRequest] Retrieved', fields.length, 'request fields');
     return fields;
   } catch (error: any) {
