@@ -5,7 +5,7 @@
  * Catalog entries represent apps, groups, and entitlements the user can request access to.
  *
  * Flow:
- * 1. Extract user's MCP access token from session
+ * 1. Extract user's access token from session
  * 2. Parse query parameter (limit)
  * 3. Create OktaGovernanceUserAPI client
  * 4. Call getMyCatalogEntries(params)
@@ -16,7 +16,7 @@
  *
  * Required:
  * - User must be authenticated (session.userId exists)
- * - Session must contain mcpAccessToken
+ * - Session must contain userAccessToken
  * - NEXT_PUBLIC_OKTA_DOMAIN environment variable must be set
  *
  * Response: GovernanceResponse<any>
@@ -50,16 +50,16 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Step 2: Extract MCP access token
-    const mcpAccessToken = session.mcpAccessToken;
+    // Step 2: Extract user access token
+    const userAccessToken = session.userAccessToken;
 
-    if (!mcpAccessToken) {
+    if (!userAccessToken) {
       return NextResponse.json(
         {
           data: [],
           error: {
             code: 'NO_TOKEN',
-            message: 'MCP access token not found in session',
+            message: 'User access token not found in session',
           },
         },
         { status: 401 }
@@ -95,7 +95,7 @@ export async function GET(request: NextRequest) {
     const limit = limitParam ? parseInt(limitParam, 10) : undefined;
 
     // Step 5: Create API client and call getMyCatalogEntries()
-    const client = new OktaGovernanceUserAPI(mcpAccessToken, orgUrl);
+    const client = new OktaGovernanceUserAPI(userAccessToken, orgUrl);
     const response = await client.getMyCatalogEntries({ limit });
 
     // Return the governance response

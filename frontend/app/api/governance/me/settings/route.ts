@@ -4,14 +4,14 @@
  * Returns the authenticated user's governance settings from Okta.
  *
  * Flow:
- * 1. Extract user's MCP access token from session
+ * 1. Extract user's access token from session
  * 2. Create OktaGovernanceUserAPI client
  * 3. Call getMySettings()
  * 4. Return governance response
  *
  * Required:
  * - User must be authenticated (session.userId exists)
- * - Session must contain mcpAccessToken
+ * - Session must contain userAccessToken
  * - NEXT_PUBLIC_OKTA_DOMAIN environment variable must be set
  *
  * Response: GovernanceResponse<any>
@@ -45,8 +45,8 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Step 2: Extract MCP access token
-    const accessToken = session.mcpAccessToken;
+    // Step 2: Extract user access token
+    const accessToken = session.userAccessToken;
 
     if (!accessToken) {
       return NextResponse.json(
@@ -54,7 +54,7 @@ export async function GET(request: NextRequest) {
           data: [],
           error: {
             code: 'NO_TOKEN',
-            message: 'MCP access token not found in session',
+            message: 'User access token not found in session',
           },
         },
         { status: 401 }

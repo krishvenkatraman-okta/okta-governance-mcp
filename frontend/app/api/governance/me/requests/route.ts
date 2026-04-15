@@ -4,7 +4,7 @@
  * Returns the authenticated user's access requests from Okta Governance.
  *
  * Flow:
- * 1. Extract user's MCP access token from session
+ * 1. Extract user's access token from session
  * 2. Parse query parameters (limit, sortBy, sortOrder)
  * 3. Create OktaGovernanceUserAPI client
  * 4. Call getMyRequests(params)
@@ -17,7 +17,7 @@
  *
  * Required:
  * - User must be authenticated (session.userId exists)
- * - Session must contain mcpAccessToken
+ * - Session must contain userAccessToken
  * - NEXT_PUBLIC_OKTA_DOMAIN environment variable must be set
  *
  * Response: GovernanceResponse<any>
@@ -51,16 +51,16 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Step 2: Extract MCP access token
-    const mcpAccessToken = session.mcpAccessToken;
+    // Step 2: Extract user access token
+    const userAccessToken = session.userAccessToken;
 
-    if (!mcpAccessToken) {
+    if (!userAccessToken) {
       return NextResponse.json(
         {
           data: [],
           error: {
             code: 'NO_TOKEN',
-            message: 'MCP access token not found in session',
+            message: 'User access token not found in session',
           },
         },
         { status: 401 }
@@ -100,7 +100,7 @@ export async function GET(request: NextRequest) {
       sortOrderParam === 'asc' || sortOrderParam === 'desc' ? sortOrderParam : undefined;
 
     // Step 5: Create API client and call getMyRequests()
-    const client = new OktaGovernanceUserAPI(mcpAccessToken, orgUrl);
+    const client = new OktaGovernanceUserAPI(userAccessToken, orgUrl);
     const response = await client.getMyRequests({
       limit,
       sortBy,
