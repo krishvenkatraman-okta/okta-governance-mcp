@@ -89,6 +89,9 @@ export interface SessionData {
     availableValues: string[];
     label?: any; // Label metadata including labelId
   };
+
+  // Conversation history (cleared after workflow completion to prevent bloat)
+  conversationHistory?: any[];
 }
 
 const sessionOptions = {

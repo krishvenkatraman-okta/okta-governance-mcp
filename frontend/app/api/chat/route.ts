@@ -812,8 +812,9 @@ async function handleAwaitingConfirmation(
         workflow.collectedValues
       );
 
-      // Clear workflow
+      // Clear workflow and conversation history to prevent session bloat
       session.pendingAccessRequestWorkflow = undefined;
+      session.conversationHistory = [];
       await session.save();
 
       console.log('[AccessRequest] Request created:', createdRequest.id);
@@ -822,8 +823,9 @@ async function handleAwaitingConfirmation(
     } catch (error: any) {
       console.error('[AccessRequest] Error creating request:', error.message);
 
-      // Clear workflow on error
+      // Clear workflow and conversation history on error
       session.pendingAccessRequestWorkflow = undefined;
+      session.conversationHistory = [];
       await session.save();
 
       return `❌ **Failed to create access request**\n\nError: ${error.message}`;
@@ -837,7 +839,9 @@ async function handleAwaitingConfirmation(
     // Cancel request
     console.log('[AccessRequest] Request cancelled by user');
 
+    // Clear workflow and conversation history on cancel
     session.pendingAccessRequestWorkflow = undefined;
+    session.conversationHistory = [];
     await session.save();
 
     return '❌ Access request cancelled.';
