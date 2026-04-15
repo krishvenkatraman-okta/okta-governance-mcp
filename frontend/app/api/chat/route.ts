@@ -832,7 +832,8 @@ Please provide a human-readable summary of this data. Format it nicely with:
 Be concise but informative. If there are no items, suggest what the user might do next.`;
 
         // Call LiteLLM to format the response
-        const litellmResponse = await fetch(`${config.mcp.baseUrl}/chat/completions`, {
+        const litellmApiBase = process.env.LITELLM_API_BASE || 'http://localhost:4000';
+        const litellmResponse = await fetch(`${litellmApiBase}/chat/completions`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
