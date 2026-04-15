@@ -216,7 +216,7 @@ async function getRequestFields(
 ): Promise<any[]> {
   try {
     const url = `https://${oktaDomain}/governance/api/v2/my/catalogs/default/entries/${entryId}/request-fields`;
-    console.log('[AccessRequest] Fetching request fields for entry:', entryId);
+    console.log('[AccessRequest] Fetching request fields from:', url);
 
     const response = await fetch(url, {
       headers: {
@@ -225,15 +225,23 @@ async function getRequestFields(
       },
     });
 
+    console.log('[AccessRequest] Request fields response status:', response.status);
+
+    const data = await response.json();
+    console.log('[AccessRequest] Full request fields response:', JSON.stringify(data, null, 2));
+
     if (!response.ok) {
-      console.error('[AccessRequest] Failed to fetch request fields:', response.status);
+      console.error('[AccessRequest] Error response:', data);
       return [];
     }
 
-    const data = await response.json();
-    // Postman collection shows response format: { data: [...] }
-    const fields = data.data || [];
-    console.log('[AccessRequest] Retrieved', fields.length, 'request fields');
+    // Try different response formats
+    const fields =
+      data._embedded?.fields || data.fields || data.data || (Array.isArray(data) ? data : []);
+
+    console.log('[AccessRequest] Extracted fields:', JSON.stringify(fields, null, 2));
+    console.log('[AccessRequest] Retrieved request fields:', fields.length);
+
     return fields;
   } catch (error: any) {
     console.error('[AccessRequest] Error getting request fields:', error.message);
@@ -963,14 +971,31 @@ export async function POST(request: NextRequest) {
 
           // Step 3: Get request fields
           const fields = await getRequestFields(session.userAccessToken!, oktaDomain, matchedEntry.id);
+          console.log('[AccessRequest] Fields returned from getRequestFields:', fields.length);
+          console.log('[AccessRequest] Each field structure:');
+          fields.forEach((f: any, idx: number) => {
+            console.log(`[AccessRequest]   Field ${idx}:`, JSON.stringify(f, null, 2));
+            console.log(`[AccessRequest]     - id: ${f.id}`);
+            console.log(`[AccessRequest]     - type: ${f.type}`);
+            console.log(`[AccessRequest]     - label: ${f.label}`);
+            console.log(`[AccessRequest]     - name: ${f.name}`);
+            console.log(`[AccessRequest]     - required: ${f.required}`);
+            console.log(`[AccessRequest]     - description: ${f.description}`);
+          });
 
           // Step 4: Check if fields are required
           const requiredFields = fields.filter((f: any) => f.required);
+          console.log('[AccessRequest] Required fields count:', requiredFields.length);
 
           if (requiredFields.length > 0) {
             // Need to collect field values
             const fieldList = requiredFields
-              .map((f: any) => `- ${f.label || f.name}: ${f.description || ''}`)
+              .map((f: any) => {
+                const fieldName = f.label || f.name || f.id || 'Unknown field';
+                const fieldDesc = f.description || '';
+                console.log(`[AccessRequest] Formatting field: name="${fieldName}", desc="${fieldDesc}"`);
+                return `- ${fieldName}: ${fieldDesc}`;
+              })
               .join('\n');
 
             return NextResponse.json({
