@@ -287,6 +287,164 @@ async function createAccessRequest(
   }
 }
 
+/**
+ * v2 API: Find parent catalog entry by resource name using fuzzy search
+ */
+async function findParentEntry(
+  resourceName: string,
+  userAccessToken: string,
+  oktaDomain: string
+): Promise<any | null> {
+  try {
+    // Use match parameter for fuzzy search (requires minimum 3 characters)
+    const searchTerm = resourceName.length >= 3 ? resourceName : undefined;
+    const matchParam = searchTerm ? `&match=${encodeURIComponent(searchTerm)}` : '';
+    const url = `https://${oktaDomain}/governance/api/v2/my/catalogs/default/entries?filter=not(parent%20pr)${matchParam}&limit=20`;
+
+    console.log('[AccessRequest] Searching for parent entry:', resourceName);
+    console.log('[AccessRequest] Search URL:', url);
+
+    const response = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${userAccessToken}`,
+        Accept: 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      console.error('[AccessRequest] Failed to search catalog:', response.status);
+      return null;
+    }
+
+    const data = await response.json();
+    const entries = data.data || [];
+
+    console.log('[AccessRequest] Found', entries.length, 'entries');
+
+    // Try exact match first
+    const exactMatch = entries.find(
+      (e: any) => e.name?.toLowerCase() === resourceName.toLowerCase()
+    );
+
+    if (exactMatch) {
+      console.log('[AccessRequest] Exact match found:', exactMatch.name);
+      return exactMatch;
+    }
+
+    // Try fuzzy match
+    const fuzzyMatch = entries.find((e: any) =>
+      e.name?.toLowerCase().includes(resourceName.toLowerCase()) ||
+      e.description?.toLowerCase().includes(resourceName.toLowerCase())
+    );
+
+    if (fuzzyMatch) {
+      console.log('[AccessRequest] Fuzzy match found:', fuzzyMatch.name);
+      return fuzzyMatch;
+    }
+
+    console.log('[AccessRequest] No match found for:', resourceName);
+    return entries[0] || null; // Return first result if any
+  } catch (error: any) {
+    console.error('[AccessRequest] Error finding parent entry:', error.message);
+    return null;
+  }
+}
+
+/**
+ * v2 API: Get child entries (entitlements) under a parent entry
+ */
+async function getChildEntries(
+  parentId: string,
+  userAccessToken: string,
+  oktaDomain: string
+): Promise<any[]> {
+  try {
+    // filter=parent eq "{parentId}" gets child entries
+    const url = `https://${oktaDomain}/governance/api/v2/my/catalogs/default/entries?filter=parent%20eq%20%22${parentId}%22&limit=50`;
+
+    console.log('[AccessRequest] Fetching child entries for parent:', parentId);
+    console.log('[AccessRequest] Child entries URL:', url);
+
+    const response = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${userAccessToken}`,
+        Accept: 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      console.error('[AccessRequest] Failed to fetch child entries:', response.status);
+      return [];
+    }
+
+    const data = await response.json();
+    const children = data.data || [];
+
+    console.log('[AccessRequest] Found', children.length, 'child entries');
+    return children;
+  } catch (error: any) {
+    console.error('[AccessRequest] Error getting child entries:', error.message);
+    return [];
+  }
+}
+
+/**
+ * Parse user input into the correct format based on field type
+ */
+function parseFieldValue(fieldId: string, fieldType: string, userInput: string): any {
+  const input = userInput.toLowerCase().trim();
+
+  switch (fieldType) {
+    case 'DURATION':
+      // Parse duration like "7 days", "2 weeks", "1 month", "30 days"
+      const durationMatch = input.match(/(\d+)\s*(day|days|week|weeks|month|months|hour|hours)/);
+
+      if (durationMatch) {
+        const value = parseInt(durationMatch[1], 10);
+        const unit = durationMatch[2];
+
+        if (unit.startsWith('day')) {
+          return `P${value}D`;
+        } else if (unit.startsWith('week')) {
+          return `P${value * 7}D`;
+        } else if (unit.startsWith('month')) {
+          return `P${value}M`;
+        } else if (unit.startsWith('hour')) {
+          return `PT${value}H`;
+        }
+      }
+
+      // If already in ISO 8601 format (P30D), return as-is
+      if (input.match(/^P\d+[DWMY]$/)) {
+        return userInput;
+      }
+
+      // Default to 30 days if unparseable
+      console.log('[AccessRequest] Could not parse duration, defaulting to P30D');
+      return 'P30D';
+
+    case 'OKTA_USER_ID':
+      // For now, assume current user (should be expanded to support user search)
+      return userInput; // Will be the userId or email
+
+    case 'STRING':
+    case 'TEXT':
+      return userInput;
+
+    case 'ENUM':
+      return userInput; // Should match one of the enum values
+
+    case 'BOOLEAN':
+      return input === 'yes' || input === 'true' || input === 'y';
+
+    case 'NUMBER':
+      return parseInt(userInput, 10);
+
+    default:
+      return userInput;
+  }
+}
+
 // Read-only tools allowed in chat
 const ALLOWED_TOOLS = [
   'list_manageable_apps',

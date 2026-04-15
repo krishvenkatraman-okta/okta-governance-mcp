@@ -61,6 +61,21 @@ export interface SessionData {
       name: string;
     }>;
   };
+
+  // Pending access request workflow (for multi-turn request flow)
+  pendingAccessRequestWorkflow?: {
+    stage:
+      | 'awaiting_entitlement_selection'
+      | 'collecting_fields'
+      | 'awaiting_confirmation';
+    resourceName: string;
+    parentEntry?: any; // Parent catalog entry
+    childEntries?: any[]; // Available child entitlements
+    selectedEntryId?: string; // Selected entitlement ID
+    requestFields?: any[]; // Required fields for request
+    collectedValues?: Record<string, any>; // Field values collected so far
+    currentFieldIndex?: number; // Which field we're collecting
+  };
 }
 
 const sessionOptions = {
