@@ -687,6 +687,18 @@ async function handleAwaitingEntitlementSelection(
   workflow.collectedValues = {};
   workflow.currentFieldIndex = 0;
 
+  // Debug: Log session size before save
+  console.log('[DEBUG SESSION SIZE]', {
+    workflowSize: JSON.stringify(workflow).length,
+    pendingActionSize: session.pendingAction ? JSON.stringify(session.pendingAction).length : 0,
+    totalKeys: Object.keys(session).length,
+    topLevelKeys: Object.keys(session).filter((k: string) => typeof (session as any)[k] === 'object').map((k: string) => ({
+      key: k,
+      size: JSON.stringify((session as any)[k]).length
+    })),
+    fullSessionEstimate: JSON.stringify(session).length
+  });
+
   await session.save();
 
   // If no required fields, show confirmation immediately
@@ -1615,6 +1627,19 @@ export async function POST(request: NextRequest) {
                 parentEntryId: parentEntry.id,
                 childEntryIds: childEntries.map((e: any) => e.id),
               };
+
+              // Debug: Log session size before save
+              console.log('[DEBUG SESSION SIZE - Entitlement Selection Init]', {
+                workflowSize: JSON.stringify(session.pendingAccessRequestWorkflow).length,
+                pendingActionSize: session.pendingAction ? JSON.stringify(session.pendingAction).length : 0,
+                totalKeys: Object.keys(session).length,
+                topLevelKeys: Object.keys(session).filter((k: string) => typeof (session as any)[k] === 'object').map((k: string) => ({
+                  key: k,
+                  size: JSON.stringify((session as any)[k]).length
+                })),
+                fullSessionEstimate: JSON.stringify(session).length
+              });
+
               await session.save();
 
               const options = childEntries
@@ -1682,6 +1707,20 @@ export async function POST(request: NextRequest) {
                 collectedValues,
                 currentFieldIndex: Object.keys(collectedValues).length,
               };
+
+              // Debug: Log session size before save
+              console.log('[DEBUG SESSION SIZE - Child Entry Pre-filled Fields]', {
+                workflowSize: JSON.stringify(session.pendingAccessRequestWorkflow).length,
+                collectedValuesSize: JSON.stringify(collectedValues).length,
+                pendingActionSize: session.pendingAction ? JSON.stringify(session.pendingAction).length : 0,
+                totalKeys: Object.keys(session).length,
+                topLevelKeys: Object.keys(session).filter((k: string) => typeof (session as any)[k] === 'object').map((k: string) => ({
+                  key: k,
+                  size: JSON.stringify((session as any)[k]).length
+                })),
+                fullSessionEstimate: JSON.stringify(session).length
+              });
+
               await session.save();
 
               const nextFieldIndex = Object.keys(collectedValues).length;
@@ -1702,6 +1741,19 @@ export async function POST(request: NextRequest) {
               collectedValues: {},
               currentFieldIndex: 0,
             };
+
+            // Debug: Log session size before save
+            console.log('[DEBUG SESSION SIZE - Child Entry No Pre-fill]', {
+              workflowSize: JSON.stringify(session.pendingAccessRequestWorkflow).length,
+              pendingActionSize: session.pendingAction ? JSON.stringify(session.pendingAction).length : 0,
+              totalKeys: Object.keys(session).length,
+              topLevelKeys: Object.keys(session).filter((k: string) => typeof (session as any)[k] === 'object').map((k: string) => ({
+                key: k,
+                size: JSON.stringify((session as any)[k]).length
+              })),
+              fullSessionEstimate: JSON.stringify(session).length
+            });
+
             await session.save();
 
             return NextResponse.json({
@@ -1789,6 +1841,20 @@ export async function POST(request: NextRequest) {
             collectedValues,
             currentFieldIndex: startFieldIndex,
           };
+
+          // Debug: Log session size before save
+          console.log('[DEBUG SESSION SIZE - Direct Requestable with Fields]', {
+            workflowSize: JSON.stringify(session.pendingAccessRequestWorkflow).length,
+            collectedValuesSize: JSON.stringify(collectedValues).length,
+            pendingActionSize: session.pendingAction ? JSON.stringify(session.pendingAction).length : 0,
+            totalKeys: Object.keys(session).length,
+            topLevelKeys: Object.keys(session).filter((k: string) => typeof (session as any)[k] === 'object').map((k: string) => ({
+              key: k,
+              size: JSON.stringify((session as any)[k]).length
+            })),
+            fullSessionEstimate: JSON.stringify(session).length
+          });
+
           await session.save();
 
           return NextResponse.json({
