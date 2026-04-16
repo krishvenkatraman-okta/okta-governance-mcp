@@ -172,16 +172,24 @@ function detectGovernanceIntent(message: string): GovernanceIntent {
   const lower = message.toLowerCase();
 
   // Request access keywords (must check before "request" keyword)
+  // Patterns:
+  // - "request access to X"
+  // - "I need access to X"
+  // - "I need X Bundle for Y"
+  // - "I need X for Y hours"
+  // - "request X for user@email"
   if (
     lower.includes('request access') ||
     lower.includes('i need access') ||
     lower.includes('can i get access') ||
-    lower.match(/request .+ for/i) || // "request access for Adobe"
-    lower.match(/access to .+/i) // "I need access to Adobe"
+    lower.match(/\bi need\s+[a-z0-9\s]+(?:bundle|premium|standard|pro|express)\s+for/i) || // "I need Adobe Express Bundle for"
+    lower.match(/\bi need\s+[a-z0-9\s]+\s+for\s+\d+\s+(?:hour|day|week|month)/i) || // "I need Adobe for 2 hours"
+    lower.match(/request\s+.+\s+for\s+[a-z0-9@]/i) || // "request Adobe for user@email"
+    lower.match(/access to\s+.+/i) // "access to Adobe"
   ) {
     // Try to extract resource name - stop at "for" to handle "access to Adobe for user@email"
     const resourceMatch =
-      message.match(/(?:request access (?:to |for )?|access to |i need access to )([a-zA-Z0-9\s\-_\.]+?)(?:\s+for\s+|\s*$)/i);
+      message.match(/(?:request access (?:to |for )?|access to |i need access to |i need )([a-zA-Z0-9\s\-_\.]+?)(?:\s+for\s+|\s*$)/i);
     const resourceName = resourceMatch ? resourceMatch[1].trim() : undefined;
 
     return { type: 'request_access', query: message, resourceName };
