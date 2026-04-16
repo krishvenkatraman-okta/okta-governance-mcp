@@ -141,9 +141,9 @@ function detectGovernanceIntent(message: string): GovernanceIntent {
     lower.match(/request .+ for/i) || // "request access for Adobe"
     lower.match(/access to .+/i) // "I need access to Adobe"
   ) {
-    // Try to extract resource name
+    // Try to extract resource name - stop at "for" to handle "access to Adobe for user@email"
     const resourceMatch =
-      message.match(/(?:request access (?:to |for )?|access to |i need access to )([a-zA-Z0-9\s\-_\.]+)/i);
+      message.match(/(?:request access (?:to |for )?|access to |i need access to )([a-zA-Z0-9\s\-_\.]+?)(?:\s+for\s+|\s*$)/i);
     const resourceName = resourceMatch ? resourceMatch[1].trim() : undefined;
 
     return { type: 'request_access', query: message, resourceName };
