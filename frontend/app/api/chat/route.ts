@@ -633,8 +633,20 @@ function parseFieldValue(fieldId: string, fieldType: string, userInput: string):
       return 'P30D';
 
     case 'OKTA_USER_ID':
-      // For now, assume current user (should be expanded to support user search)
-      return userInput; // Will be the userId or email
+      // Extract email or "myself" from input
+      // Handle cases like: "myself", "me", "john@example.com", or full sentences containing email
+      if (input === 'myself' || input === 'me') {
+        return 'myself';
+      }
+
+      // Try to extract email from the input
+      const emailMatch = userInput.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/);
+      if (emailMatch) {
+        return emailMatch[1];
+      }
+
+      // If no email found, return the input as-is (might be a username)
+      return userInput.trim();
 
     case 'STRING':
     case 'TEXT':
