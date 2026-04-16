@@ -70,27 +70,50 @@ interface ParsedAccessIntent {
 
 /**
  * Parse complete access request from user message
- * Extracts resource, duration, delegation, justification if provided
- * Example: "I need access to Adobe Express Bundle for 2 hours"
+ * Extracts resource, entitlement, duration, delegation, justification if provided
+ *
+ * Examples:
+ * - "I need Adobe Express Bundle for 2 hours for Arjun.Krishnan@atko.email"
+ * - "Request Salesforce access for 7 days for john@example.com"
+ * - "I need Microsoft Office 365 for myself for 1 week"
+ * - "Access to Adobe for 2 hours"
  */
 function parseAccessRequestIntent(userMessage: string): ParsedAccessIntent {
   const lower = userMessage.toLowerCase();
   const result: ParsedAccessIntent = { isComplete: false };
 
-  // Extract resource: "access to Adobe" or "request Adobe"
-  const resourceMatch = userMessage.match(/(?:access to|request|for)\s+([A-Za-z0-9\s\-\.]+?)(?:\s+(?:express|pro|bundle|for|access))?/i);
+  console.log('[AccessRequest] Parsing intent from:', userMessage);
+
+  // Extract full resource name (including bundle/entitlement if specified)
+  // Match patterns like:
+  // - "access to Adobe Express Bundle"
+  // - "I need Salesforce"
+  // - "request Microsoft Office 365"
+  // Stop at "for X hours", "for user@email", or "for myself"
+  const resourceMatch = userMessage.match(/(?:need access to|i need access to|access to|i need|request\s+access\s+to|request)\s+([A-Za-z0-9\s\-\.]+?)(?:\s+for\s+(?:\d+\s+(?:hour|day|week|month)|myself|me|[a-zA-Z0-9._%+-]+@)|\s*$)/i);
   if (resourceMatch) {
-    result.resourceName = resourceMatch[1].trim();
+    const fullResource = resourceMatch[1].trim();
+    result.resourceName = fullResource;
+
+    // Check if the resource name contains a bundle/entitlement indicator
+    const bundleMatch = fullResource.match(/(Express Bundle|Pro Bundle|Creative Cloud Bundle|Express|Pro|Standard|Premium|Basic)/i);
+    if (bundleMatch) {
+      result.entitlementName = bundleMatch[0];
+      // Extract parent resource name (everything before the bundle name)
+      const parentName = fullResource.substring(0, bundleMatch.index).trim();
+      if (parentName) {
+        result.resourceName = parentName;
+      }
+    }
+
+    console.log('[AccessRequest] Extracted resource:', result.resourceName);
+    if (result.entitlementName) {
+      console.log('[AccessRequest] Extracted entitlement:', result.entitlementName);
+    }
   }
 
-  // Extract entitlement: "Adobe Express Bundle" or "Express"
-  const entitlementMatch = userMessage.match(/(Express Bundle|Pro Bundle|Creative Cloud Bundle|Express|Pro|Creative Cloud)/i);
-  if (entitlementMatch) {
-    result.entitlementName = entitlementMatch[1];
-  }
-
-  // Extract duration: "2 hours", "7 days", "2 weeks"
-  const durationMatch = userMessage.match(/(?:for|need)\s+(\d+)\s+(hour|day|week|month)s?/i);
+  // Extract duration: "2 hours", "7 days", "2 weeks", "for 30 days"
+  const durationMatch = userMessage.match(/for\s+(\d+)\s+(hour|day|week|month)s?/i);
   if (durationMatch) {
     const amount = parseInt(durationMatch[1], 10);
     const unit = durationMatch[2].toLowerCase();
@@ -104,23 +127,38 @@ function parseAccessRequestIntent(userMessage: string): ParsedAccessIntent {
     } else if (unit.startsWith('month')) {
       result.duration = `P${amount}M`;
     }
+
+    console.log('[AccessRequest] Extracted duration:', result.duration);
   }
 
   // Extract delegation: "for myself" or "for john@example.com"
-  const delegationMatch = userMessage.match(/for\s+(myself|me|([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}))/i);
-  if (delegationMatch) {
-    result.requestedFor = delegationMatch[1];
+  // Look for the LAST occurrence of "for" followed by email/myself
+  // This handles: "Adobe Express Bundle for 2 hours for john@example.com"
+  const forMatches = [...userMessage.matchAll(/for\s+([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}|myself|me)(?!\s+\d+\s+(?:hour|day|week|month))/gi)];
+  if (forMatches.length > 0) {
+    // Get the last match (in case there are multiple "for" clauses)
+    const lastMatch = forMatches[forMatches.length - 1];
+    result.requestedFor = lastMatch[1];
+    console.log('[AccessRequest] Extracted requestedFor:', result.requestedFor);
   }
 
-  // Extract justification: "because", "reason", "for"
-  const justificationMatch = userMessage.match(/(?:because|reason|need|require)[\s:]+(.{10,100})/i);
+  // Extract justification: "because", "reason", "need"
+  const justificationMatch = userMessage.match(/(?:because|reason)[\s:]+(.{10,100})/i);
   if (justificationMatch) {
     result.justification = justificationMatch[1].trim();
+    console.log('[AccessRequest] Extracted justification:', result.justification);
   }
 
-  // Check if we have all required fields
+  // Check if we have all required fields for a complete request
+  // Note: requestedFor is optional (defaults to "myself")
   if (result.resourceName && result.duration) {
     result.isComplete = true;
+    console.log('[AccessRequest] Intent is complete');
+  } else {
+    console.log('[AccessRequest] Intent is incomplete - missing:', {
+      resourceName: !result.resourceName,
+      duration: !result.duration,
+    });
   }
 
   return result;
@@ -1815,11 +1853,19 @@ export async function POST(request: NextRequest) {
                 // All fields provided - create request directly
                 console.log('[AccessRequest] All required fields provided via smart parsing, creating request');
                 try {
+                  // Transform to proper payload format and resolve usernames
+                  const requestPayload = await buildAccessRequestPayload(
+                    collectedValues,
+                    session.userId,
+                    mcpAccessToken!,
+                    config.mcp.endpoints.toolsCall
+                  );
+
                   const createdRequest = await createAccessRequest(
                     userAccessToken!,
                     oktaDomain,
                     entryToUse.id,
-                    collectedValues
+                    requestPayload
                   );
 
                   return NextResponse.json({
@@ -1947,11 +1993,19 @@ export async function POST(request: NextRequest) {
             // All fields provided - create request directly
             console.log('[AccessRequest] All required fields provided via smart parsing, creating request');
             try {
+              // Transform to proper payload format and resolve usernames
+              const requestPayload = await buildAccessRequestPayload(
+                collectedValues,
+                session.userId,
+                mcpAccessToken!,
+                config.mcp.endpoints.toolsCall
+              );
+
               const createdRequest = await createAccessRequest(
                 userAccessToken!,
                 oktaDomain,
                 parentEntry.id,
-                collectedValues
+                requestPayload
               );
 
               return NextResponse.json({
