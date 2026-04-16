@@ -64,7 +64,8 @@ export interface SessionData {
     stage:
       | 'awaiting_entitlement_selection'
       | 'collecting_fields'
-      | 'awaiting_confirmation';
+      | 'awaiting_confirmation'
+      | 'smart_parse_confirmation'; // Confirming smart-parsed complete request
     resourceName: string;
     parentEntryId?: string; // Parent catalog entry ID (stored instead of full object)
     childEntryIds?: string[]; // Child entitlement IDs (stored instead of full objects)

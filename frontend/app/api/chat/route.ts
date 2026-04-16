@@ -939,6 +939,89 @@ async function handleCollectingFields(
 }
 
 /**
+ * Stage Handler: Smart Parse Confirmation
+ * Handles confirmation for smart-parsed complete requests
+ */
+async function handleSmartParseConfirmation(
+  userMessage: string,
+  session: any,
+  userAccessToken: string,
+  oktaDomain: string,
+  mcpAccessToken: string,
+  mcpEndpoint: string
+): Promise<string> {
+  const workflow = session.pendingAccessRequestWorkflow;
+  const lowerMessage = userMessage.toLowerCase().trim();
+
+  console.log('[AccessRequest] Handling smart parse confirmation');
+  console.log('[AccessRequest] User message:', userMessage);
+
+  if (
+    lowerMessage === 'yes' ||
+    lowerMessage === 'confirm' ||
+    lowerMessage === 'y' ||
+    lowerMessage.includes('confirm')
+  ) {
+    // Create request
+    console.log('[AccessRequest] Creating access request from smart parse');
+    console.log('[AccessRequest] Entry ID:', workflow.selectedEntryId);
+    console.log('[AccessRequest] Collected values:', workflow.collectedValues);
+
+    try {
+      // Transform to proper payload format and resolve usernames
+      const requestPayload = await buildAccessRequestPayload(
+        workflow.collectedValues,
+        session.userId,
+        mcpAccessToken,
+        mcpEndpoint
+      );
+
+      const createdRequest = await createAccessRequest(
+        userAccessToken,
+        oktaDomain,
+        workflow.selectedEntryId,
+        requestPayload
+      );
+
+      // Clear workflow and conversation history to prevent session bloat
+      session.pendingAccessRequestWorkflow = undefined;
+      session.conversationHistory = [];
+      await session.save();
+
+      console.log('[AccessRequest] Request created:', createdRequest.id);
+
+      return `✅ **Access request created successfully!**\n\n**Resource:** ${workflow.resourceName}\n**Access Level:** ${workflow.selectedEntryName}\n**Request ID:** ${createdRequest.id}\n**Status:** ${createdRequest.status || 'PENDING'}\n\nYou'll be notified when your request is approved.`;
+    } catch (error: any) {
+      console.error('[AccessRequest] Error creating request:', error.message);
+
+      // Clear workflow and conversation history on error
+      session.pendingAccessRequestWorkflow = undefined;
+      session.conversationHistory = [];
+      await session.save();
+
+      return `❌ **Failed to create access request**\n\nError: ${error.message}`;
+    }
+  } else if (
+    lowerMessage === 'no' ||
+    lowerMessage === 'cancel' ||
+    lowerMessage === 'n' ||
+    lowerMessage.includes('cancel')
+  ) {
+    // Cancel request
+    console.log('[AccessRequest] Smart parse request cancelled by user');
+
+    // Clear workflow and conversation history on cancel
+    session.pendingAccessRequestWorkflow = undefined;
+    session.conversationHistory = [];
+    await session.save();
+
+    return '❌ Access request cancelled.';
+  } else {
+    return `Please type **"confirm"** to submit the request, or **"cancel"** to abort.`;
+  }
+}
+
+/**
  * Stage Handler: Awaiting Confirmation
  */
 async function handleAwaitingConfirmation(
@@ -1697,6 +1780,17 @@ export async function POST(request: NextRequest) {
             );
             break;
 
+          case 'smart_parse_confirmation':
+            responseMessage = await handleSmartParseConfirmation(
+              userText,
+              session,
+              userAccessToken,
+              oktaDomain,
+              mcpAccessToken!,
+              config.mcp.endpoints.toolsCall
+            );
+            break;
+
           default:
             console.error('[Chat] Unknown workflow stage:', session.pendingAccessRequestWorkflow.stage);
             session.pendingAccessRequestWorkflow = undefined;
@@ -1750,9 +1844,13 @@ export async function POST(request: NextRequest) {
           const parsedIntent = parseAccessRequestIntent(userText);
           console.log('[AccessRequest] Parsed intent:', JSON.stringify(parsedIntent));
 
+          // Use parsed resource name (which splits parent from entitlement) if available
+          const searchResourceName = parsedIntent.resourceName || governanceIntent.resourceName;
+          console.log('[AccessRequest] Searching for parent app:', searchResourceName);
+
           // Step 1: Find parent entry using helper
           const parentEntry = await findParentEntry(
-            governanceIntent.resourceName,
+            searchResourceName,
             userAccessToken!,
             oktaDomain
           );
@@ -1858,32 +1956,33 @@ export async function POST(request: NextRequest) {
               const missingFields = requiredFields.filter((f: any) => !collectedValues[f.id]);
 
               if (missingFields.length === 0) {
-                // All fields provided - create request directly
-                console.log('[AccessRequest] All required fields provided via smart parsing, creating request');
-                try {
-                  // Transform to proper payload format and resolve usernames
-                  const requestPayload = await buildAccessRequestPayload(
-                    collectedValues,
-                    session.userId,
-                    mcpAccessToken!,
-                    config.mcp.endpoints.toolsCall
-                  );
+                // All fields provided - show confirmation before creating
+                console.log('[AccessRequest] All required fields provided via smart parsing, showing confirmation');
 
-                  const createdRequest = await createAccessRequest(
-                    userAccessToken!,
-                    oktaDomain,
-                    entryToUse.id,
-                    requestPayload
-                  );
+                session.pendingAccessRequestWorkflow = {
+                  stage: 'smart_parse_confirmation',
+                  resourceName: parentEntry.displayName || parentEntry.name,
+                  selectedEntryId: entryToUse.id,
+                  selectedEntryName: entryToUse.displayName || entryToUse.name,
+                  collectedValues,
+                };
 
-                  return NextResponse.json({
-                    message: `✅ **Access request created successfully!**\n\n**Resource:** ${parentEntry.displayName || parentEntry.name}\n**Access Level:** ${entryToUse.displayName || entryToUse.name}\n**Request ID:** ${createdRequest.id}\n**Status:** ${createdRequest.status || 'PENDING'}\n\nYou'll be notified when your request is approved.`,
-                  });
-                } catch (error: any) {
-                  return NextResponse.json({
-                    message: `❌ Failed to create access request: ${error.message}`,
-                  });
-                }
+                await session.save();
+
+                // Format collected values for display
+                const durationDisplay = collectedValues['ACCESS_DURATION']
+                  ? formatDurationForDisplay(collectedValues['ACCESS_DURATION'])
+                  : 'Not specified';
+                const requestedForDisplay = collectedValues['OKTA_REQUESTED_FOR'] || 'myself';
+
+                return NextResponse.json({
+                  message: `**I detected a complete access request from your message:**\n\n` +
+                    `📦 **Parent App:** ${parentEntry.displayName || parentEntry.name}\n` +
+                    `🎯 **Bundle/Entitlement:** ${entryToUse.displayName || entryToUse.name}\n` +
+                    `⏱️  **Duration:** ${durationDisplay}\n` +
+                    `👤 **For:** ${requestedForDisplay}\n\n` +
+                    `Type **"confirm"** to submit this request, or **"cancel"** to start over.`,
+                });
               }
 
               // Some fields missing - start workflow with pre-filled values
@@ -1998,32 +2097,32 @@ export async function POST(request: NextRequest) {
           const missingFields = requiredFields.filter((f: any) => !collectedValues[f.id]);
 
           if (missingFields.length === 0) {
-            // All fields provided - create request directly
-            console.log('[AccessRequest] All required fields provided via smart parsing, creating request');
-            try {
-              // Transform to proper payload format and resolve usernames
-              const requestPayload = await buildAccessRequestPayload(
-                collectedValues,
-                session.userId,
-                mcpAccessToken!,
-                config.mcp.endpoints.toolsCall
-              );
+            // All fields provided - show confirmation before creating
+            console.log('[AccessRequest] All required fields provided via smart parsing, showing confirmation');
 
-              const createdRequest = await createAccessRequest(
-                userAccessToken!,
-                oktaDomain,
-                parentEntry.id,
-                requestPayload
-              );
+            session.pendingAccessRequestWorkflow = {
+              stage: 'smart_parse_confirmation',
+              resourceName: parentEntry.displayName || parentEntry.name,
+              selectedEntryId: parentEntry.id,
+              selectedEntryName: parentEntry.displayName || parentEntry.name,
+              collectedValues,
+            };
 
-              return NextResponse.json({
-                message: `✅ **Access request created successfully!**\n\n**Resource:** ${parentEntry.displayName || parentEntry.name}\n**Request ID:** ${createdRequest.id}\n**Status:** ${createdRequest.status || 'PENDING'}\n\nYou'll be notified when your request is approved.`,
-              });
-            } catch (error: any) {
-              return NextResponse.json({
-                message: `❌ Failed to create access request: ${error.message}`,
-              });
-            }
+            await session.save();
+
+            // Format collected values for display
+            const durationDisplay = collectedValues['ACCESS_DURATION']
+              ? formatDurationForDisplay(collectedValues['ACCESS_DURATION'])
+              : 'Not specified';
+            const requestedForDisplay = collectedValues['OKTA_REQUESTED_FOR'] || 'myself';
+
+            return NextResponse.json({
+              message: `**I detected a complete access request from your message:**\n\n` +
+                `📦 **Resource:** ${parentEntry.displayName || parentEntry.name}\n` +
+                `⏱️  **Duration:** ${durationDisplay}\n` +
+                `👤 **For:** ${requestedForDisplay}\n\n` +
+                `Type **"confirm"** to submit this request, or **"cancel"** to start over.`,
+            });
           }
 
           // Some fields missing or not provided - start field collection workflow
