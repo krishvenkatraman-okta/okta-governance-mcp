@@ -321,6 +321,67 @@ async function getRequestFields(
 }
 
 /**
+ * Build access request payload from collected field values
+ *
+ * Handles:
+ * - "myself" case: omits OKTA_REQUESTED_FOR field
+ * - Username resolution: TODO - call MCP to resolve username to Okta GUID
+ *
+ * Payload format:
+ * {
+ *   "requesterFieldValues": [
+ *     { "id": "ACCESS_DURATION", "value": "PT2H" },
+ *     { "id": "OKTA_REQUESTED_FOR", "value": "00u..." }  // only if not "myself"
+ *   ]
+ * }
+ *
+ * TODO: Implement username resolution via MCP server
+ * - Add MCP tool to lookup Okta user by username/email
+ * - Frontend doesn't have scope to read users from Okta directly
+ * - MCP server should call Okta Users API to resolve username to GUID
+ * - Tool should accept username/email and return Okta user GUID
+ * - Example: await executeTool('get_okta_user', { username: fieldValue })
+ */
+async function buildAccessRequestPayload(
+  collectedValues: Record<string, any>,
+  currentUserId: string | undefined
+): Promise<any> {
+  const requesterFieldValues: Array<{ id: string; value: any }> = [];
+
+  for (const [fieldId, fieldValue] of Object.entries(collectedValues)) {
+    if (fieldId === 'OKTA_REQUESTED_FOR') {
+      const normalizedValue = fieldValue.toLowerCase().trim();
+
+      if (normalizedValue === 'myself' || normalizedValue === 'me') {
+        // Requesting for self - omit this field entirely
+        console.log('[AccessRequest] Requesting for self - omitting OKTA_REQUESTED_FOR');
+        continue;
+      }
+
+      // TODO: Call MCP server to resolve username/email to Okta user GUID
+      // Currently assumes the value is already a valid Okta user ID (00u...)
+      // Should implement: const userGuid = await resolveUsernameToGuid(fieldValue, mcpAccessToken);
+
+      console.log('[AccessRequest] WARNING: Username resolution not implemented yet');
+      console.log('[AccessRequest] Assuming value is Okta user GUID:', fieldValue);
+
+      requesterFieldValues.push({
+        id: fieldId,
+        value: fieldValue
+      });
+    } else {
+      // Other fields: include as-is
+      requesterFieldValues.push({
+        id: fieldId,
+        value: fieldValue
+      });
+    }
+  }
+
+  return { requesterFieldValues };
+}
+
+/**
  * v2 API: Create access request for a catalog entry
  */
 async function createAccessRequest(
@@ -333,6 +394,19 @@ async function createAccessRequest(
     const url = `https://${oktaDomain}/governance/api/v2/my/catalogs/default/entries/${entryId}/requests`;
     console.log('[AccessRequest] Creating access request for entry:', entryId);
 
+    // Log full API request details
+    console.log('[AccessRequest] API Request Details:', {
+      method: 'POST',
+      url: url,
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        Authorization: 'Bearer [REDACTED]',
+      },
+      body: requestData,
+    });
+    console.log('[AccessRequest] Request body JSON:', JSON.stringify(requestData, null, 2));
+
     const response = await fetch(url, {
       method: 'POST',
       headers: {
@@ -343,14 +417,19 @@ async function createAccessRequest(
       body: JSON.stringify(requestData),
     });
 
+    console.log('[AccessRequest] Response status:', response.status);
+    console.log('[AccessRequest] Response headers:', Object.fromEntries(response.headers.entries()));
+
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('[AccessRequest] Failed to create request:', response.status, errorText);
+      console.error('[AccessRequest] Failed to create request - Status:', response.status);
+      console.error('[AccessRequest] Failed to create request - Response body:', errorText);
       throw new Error(`Failed to create access request: ${response.status} ${errorText}`);
     }
 
     const data = await response.json();
     console.log('[AccessRequest] Successfully created access request:', data.id);
+    console.log('[AccessRequest] Full response:', JSON.stringify(data, null, 2));
     return data;
   } catch (error: any) {
     console.error('[AccessRequest] Error creating access request:', error.message);
@@ -554,7 +633,7 @@ function askForNextField(field: any, index: number, total: number): string {
 
     case 'OKTA_USER_ID':
       prompt += `Is this request for yourself or someone else?\n`;
-      prompt += `Reply "myself" or provide their email address.`;
+      prompt += `Reply "myself" or provide their Okta username/email.`;
       break;
 
     case 'STRING':
@@ -827,11 +906,20 @@ async function handleAwaitingConfirmation(
     console.log('[AccessRequest] Collected values:', workflow.collectedValues);
 
     try {
+      // Transform collected values into proper request format
+      // Handle "myself" case and username resolution
+      const requestPayload = await buildAccessRequestPayload(
+        workflow.collectedValues,
+        session.userId
+      );
+
+      console.log('[AccessRequest] Transformed payload:', requestPayload);
+
       const createdRequest = await createAccessRequest(
         userAccessToken,
         oktaDomain,
         workflow.selectedEntryId,
-        workflow.collectedValues
+        requestPayload
       );
 
       // Clear workflow and conversation history to prevent session bloat
