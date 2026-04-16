@@ -32,7 +32,7 @@ export interface OktaUser {
 export async function getUserById(userId: string): Promise<OktaUser | null> {
   try {
     const accessToken = await getServiceAccessToken('okta.users.read');
-    const url = `${config.okta.domain}/api/v1/users/${userId}`;
+    const url = `https://${config.okta.domain}/api/v1/users/${userId}`;
 
     console.log(`[UsersClient] Fetching user: ${userId}`);
 
@@ -83,7 +83,7 @@ export async function findUserByUsernameOrEmail(
     const normalizedQuery = usernameOrEmail.trim();
 
     // Try exact match on login first
-    let url = `${config.okta.domain}/api/v1/users?filter=profile.login eq "${normalizedQuery}"&limit=1`;
+    let url = `https://${config.okta.domain}/api/v1/users?filter=profile.login eq "${normalizedQuery}"&limit=1`;
 
     console.log(`[UsersClient] Searching for user by login: ${normalizedQuery}`);
 
@@ -112,7 +112,7 @@ export async function findUserByUsernameOrEmail(
     }
 
     // Try exact match on email
-    url = `${config.okta.domain}/api/v1/users?filter=profile.email eq "${normalizedQuery}"&limit=1`;
+    url = `https://${config.okta.domain}/api/v1/users?filter=profile.email eq "${normalizedQuery}"&limit=1`;
 
     console.log(`[UsersClient] Searching for user by email: ${normalizedQuery}`);
 
