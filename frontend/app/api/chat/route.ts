@@ -325,7 +325,7 @@ async function getRequestFields(
  *
  * Handles:
  * - "myself" case: omits OKTA_REQUESTED_FOR field
- * - Username resolution: TODO - call MCP to resolve username to Okta GUID
+ * - Username resolution: calls MCP to resolve username to Okta GUID
  *
  * Payload format:
  * {
@@ -334,17 +334,12 @@ async function getRequestFields(
  *     { "id": "OKTA_REQUESTED_FOR", "value": "00u..." }  // only if not "myself"
  *   ]
  * }
- *
- * TODO: Implement username resolution via MCP server
- * - Add MCP tool to lookup Okta user by username/email
- * - Frontend doesn't have scope to read users from Okta directly
- * - MCP server should call Okta Users API to resolve username to GUID
- * - Tool should accept username/email and return Okta user GUID
- * - Example: await executeTool('get_okta_user', { username: fieldValue })
  */
 async function buildAccessRequestPayload(
   collectedValues: Record<string, any>,
-  currentUserId: string | undefined
+  currentUserId: string | undefined,
+  mcpAccessToken: string,
+  mcpEndpoint: string
 ): Promise<any> {
   const requesterFieldValues: Array<{ id: string; value: any }> = [];
 
@@ -358,17 +353,35 @@ async function buildAccessRequestPayload(
         continue;
       }
 
-      // TODO: Call MCP server to resolve username/email to Okta user GUID
-      // Currently assumes the value is already a valid Okta user ID (00u...)
-      // Should implement: const userGuid = await resolveUsernameToGuid(fieldValue, mcpAccessToken);
+      // Call MCP server to resolve username/email to Okta user GUID
+      console.log('[AccessRequest] Resolving username to Okta GUID:', fieldValue);
 
-      console.log('[AccessRequest] WARNING: Username resolution not implemented yet');
-      console.log('[AccessRequest] Assuming value is Okta user GUID:', fieldValue);
+      try {
+        const resolveResult = await executeTool(
+          'resolve_okta_user',
+          { usernameOrEmail: fieldValue },
+          mcpAccessToken,
+          mcpEndpoint
+        );
 
-      requesterFieldValues.push({
-        id: fieldId,
-        value: fieldValue
-      });
+        console.log('[AccessRequest] Resolve result:', resolveResult);
+
+        const parsed = JSON.parse(resolveResult);
+
+        if (!parsed.success) {
+          throw new Error(parsed.message || 'Failed to resolve username');
+        }
+
+        console.log('[AccessRequest] Resolved to user ID:', parsed.userId);
+
+        requesterFieldValues.push({
+          id: fieldId,
+          value: parsed.userId
+        });
+      } catch (error: any) {
+        console.error('[AccessRequest] Failed to resolve username:', error.message);
+        throw new Error(`Could not find user: ${fieldValue}. Please check the username/email and try again.`);
+      }
     } else {
       // Other fields: include as-is
       requesterFieldValues.push({
@@ -886,7 +899,9 @@ async function handleAwaitingConfirmation(
   userMessage: string,
   session: any,
   userAccessToken: string,
-  oktaDomain: string
+  oktaDomain: string,
+  mcpAccessToken: string,
+  mcpEndpoint: string
 ): Promise<string> {
   const workflow = session.pendingAccessRequestWorkflow;
   const lowerMessage = userMessage.toLowerCase().trim();
@@ -910,7 +925,9 @@ async function handleAwaitingConfirmation(
       // Handle "myself" case and username resolution
       const requestPayload = await buildAccessRequestPayload(
         workflow.collectedValues,
-        session.userId
+        session.userId,
+        mcpAccessToken,
+        mcpEndpoint
       );
 
       console.log('[AccessRequest] Transformed payload:', requestPayload);
@@ -1628,7 +1645,9 @@ export async function POST(request: NextRequest) {
               userText,
               session,
               userAccessToken,
-              oktaDomain
+              oktaDomain,
+              mcpAccessToken!,
+              config.mcp.endpoints.toolsCall
             );
             break;
 
