@@ -6,6 +6,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/session';
+import { getMcpAccessToken } from '@/lib/token-cookies';
 import { config } from '@/lib/config';
 import { TOOL_METADATA, type ToolMetadata } from '@/lib/tool-metadata';
 
@@ -18,8 +19,11 @@ export async function GET(request: NextRequest) {
   try {
     const session = await getSession();
 
+    // Get MCP access token from cookies
+    const mcpAccessToken = await getMcpAccessToken();
+
     // Verify authentication
-    if (!session.mcpAccessToken) {
+    if (!mcpAccessToken) {
       return NextResponse.json(
         { error: 'Not authenticated', message: 'MCP access token required' },
         { status: 401 }
@@ -32,7 +36,7 @@ export async function GET(request: NextRequest) {
       const response = await fetch(`${config.mcp.endpoints.tools}`, {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${session.mcpAccessToken}`,
+          Authorization: `Bearer ${mcpAccessToken}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({}),

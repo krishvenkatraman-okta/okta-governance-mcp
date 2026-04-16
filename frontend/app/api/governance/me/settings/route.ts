@@ -25,6 +25,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/session';
+import { getUserAccessToken } from '@/lib/token-cookies';
 import { OktaGovernanceUserAPI } from '@/lib/okta-governance-user-api';
 
 export async function GET(request: NextRequest) {
@@ -45,8 +46,8 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Step 2: Extract user access token
-    const accessToken = session.userAccessToken;
+    // Step 2: Get user access token from cookies
+    const accessToken = await getUserAccessToken();
 
     if (!accessToken) {
       return NextResponse.json(

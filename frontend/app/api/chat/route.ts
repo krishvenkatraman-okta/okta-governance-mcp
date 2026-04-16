@@ -28,6 +28,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/session';
 import { config } from '@/lib/config';
+import { getUserAccessToken, getMcpAccessToken } from '@/lib/token-cookies';
 
 interface ChatMessage {
   role: 'user' | 'assistant' | 'system';
@@ -697,6 +698,27 @@ async function handleAwaitingEntitlementSelection(
       size: JSON.stringify((session as any)[k]).length
     })),
     fullSessionEstimate: JSON.stringify(session).length
+  });
+
+  // RIGHT BEFORE: await session.save()
+  console.log('[DEBUG FINAL SESSION]', {
+    note: 'Tokens moved to separate cookies (not in session)',
+    workflowSize: JSON.stringify(session.pendingAccessRequestWorkflow).length,
+    conversationHistorySize: session.conversationHistory ? JSON.stringify(session.conversationHistory).length : 0,
+    pendingActionSize: session.pendingAction ? JSON.stringify(session.pendingAction).length : 0,
+    userDataSize: session.user ? JSON.stringify(session.user).length : 0,
+    userAccessTokenInSession: session.userAccessToken ? session.userAccessToken.length : 0,
+    mcpAccessTokenInSession: session.mcpAccessToken ? session.mcpAccessToken.length : 0,
+    userIdSize: session.userId ? session.userId.length : 0,
+    userEmailSize: session.userEmail ? session.userEmail.length : 0,
+    allSessionKeys: Object.keys(session),
+    allSessionSizes: Object.keys(session)
+      .filter(k => typeof session[k] === 'object')
+      .map(k => ({
+        key: k,
+        size: JSON.stringify(session[k]).length
+      })),
+    totalEstimate: JSON.stringify(session).length
   });
 
   await session.save();
@@ -1436,10 +1458,12 @@ export async function POST(request: NextRequest) {
   try {
     console.log('[Chat] Starting chat request');
 
-    // 1. Verify user has MCP access token
+    // 1. Get session and tokens from cookies
     const session = await getSession();
+    const mcpAccessToken = await getMcpAccessToken();
+    const userAccessToken = await getUserAccessToken();
 
-    if (!session.mcpAccessToken) {
+    if (!mcpAccessToken) {
       return NextResponse.json(
         {
           error: 'Not authenticated',
@@ -1476,7 +1500,7 @@ export async function POST(request: NextRequest) {
     if (session.pendingAccessRequestWorkflow) {
       console.log('[Chat] Active workflow detected, stage:', session.pendingAccessRequestWorkflow.stage);
 
-      if (!session.userAccessToken) {
+      if (!userAccessToken) {
         return NextResponse.json({
           message: 'Session expired. Please log in again to continue your access request.',
         });
@@ -1497,7 +1521,7 @@ export async function POST(request: NextRequest) {
             responseMessage = await handleAwaitingEntitlementSelection(
               userText,
               session,
-              session.userAccessToken,
+              userAccessToken,
               oktaDomain
             );
             break;
@@ -1506,7 +1530,7 @@ export async function POST(request: NextRequest) {
             responseMessage = await handleCollectingFields(
               userText,
               session,
-              session.userAccessToken,
+              userAccessToken,
               oktaDomain
             );
             break;
@@ -1515,7 +1539,7 @@ export async function POST(request: NextRequest) {
             responseMessage = await handleAwaitingConfirmation(
               userText,
               session,
-              session.userAccessToken,
+              userAccessToken,
               oktaDomain
             );
             break;
@@ -1544,7 +1568,7 @@ export async function POST(request: NextRequest) {
       console.log('[Chat] Detected governance intent:', governanceIntent.type);
 
       // Check if user has userAccessToken for end-user APIs
-      if (!session.userAccessToken) {
+      if (!userAccessToken) {
         return NextResponse.json({
           message:
             'User access token not found. Please log in again to access your governance data.',
@@ -1576,13 +1600,13 @@ export async function POST(request: NextRequest) {
           // Step 1: Find parent entry using helper
           const parentEntry = await findParentEntry(
             governanceIntent.resourceName,
-            session.userAccessToken!,
+            userAccessToken!,
             oktaDomain
           );
 
           if (!parentEntry) {
             // Could not find matching entry, list available options
-            const entries = await listCatalogEntries(session.userAccessToken!, oktaDomain);
+            const entries = await listCatalogEntries(userAccessToken!, oktaDomain);
             const availableList = entries
               .slice(0, 10)
               .map((e: any) => `- ${e.displayName || e.name}`)
@@ -1598,7 +1622,7 @@ export async function POST(request: NextRequest) {
           // Step 2: Check if entry is directly requestable
           if (parentEntry.requestable === false) {
             // Has child entitlements - need selection
-            const childEntries = await getChildEntries(parentEntry.id, session.userAccessToken!, oktaDomain);
+            const childEntries = await getChildEntries(parentEntry.id, userAccessToken!, oktaDomain);
 
             if (childEntries.length === 0) {
               return NextResponse.json({
@@ -1659,7 +1683,7 @@ export async function POST(request: NextRequest) {
             console.log('[AccessRequest] Smart parsing matched entitlement:', selectedChild.name);
             // Continue with this entry as if it was the parent
             const entryToUse = selectedChild;
-            const fields = await getRequestFields(session.userAccessToken!, oktaDomain, entryToUse.id);
+            const fields = await getRequestFields(userAccessToken!, oktaDomain, entryToUse.id);
             const requiredFields = fields.filter((f: any) => f.required);
 
             // Check if user provided all required field values
@@ -1685,7 +1709,7 @@ export async function POST(request: NextRequest) {
                 console.log('[AccessRequest] All required fields provided via smart parsing, creating request');
                 try {
                   const createdRequest = await createAccessRequest(
-                    session.userAccessToken!,
+                    userAccessToken!,
                     oktaDomain,
                     entryToUse.id,
                     collectedValues
@@ -1766,7 +1790,7 @@ export async function POST(request: NextRequest) {
           }
 
           // Step 3: Entry is directly requestable - get request fields
-          const fields = await getRequestFields(session.userAccessToken!, oktaDomain, parentEntry.id);
+          const fields = await getRequestFields(userAccessToken!, oktaDomain, parentEntry.id);
           const requiredFields = fields.filter((f: any) => f.required);
 
           console.log('[AccessRequest] Entry is requestable, found', requiredFields.length, 'required fields');
@@ -1779,7 +1803,7 @@ export async function POST(request: NextRequest) {
               };
 
               const createdRequest = await createAccessRequest(
-                session.userAccessToken!,
+                userAccessToken!,
                 oktaDomain,
                 parentEntry.id,
                 requestData
@@ -1817,7 +1841,7 @@ export async function POST(request: NextRequest) {
             console.log('[AccessRequest] All required fields provided via smart parsing, creating request');
             try {
               const createdRequest = await createAccessRequest(
-                session.userAccessToken!,
+                userAccessToken!,
                 oktaDomain,
                 parentEntry.id,
                 collectedValues
@@ -2052,7 +2076,7 @@ Be concise but informative. If there are no items, suggest what the user might d
           toolResult = await executeTool(
             'manage_app_labels',
             toolArgs,
-            session.mcpAccessToken!,
+            mcpAccessToken!,
             config.mcp.endpoints.toolsCall
           );
         } else if (pending.type === 'manage_app_campaigns') {
@@ -2064,7 +2088,7 @@ Be concise but informative. If there are no items, suggest what the user might d
               action: pending.action,
               name: pending.campaignName,
             },
-            session.mcpAccessToken!,
+            mcpAccessToken!,
             config.mcp.endpoints.toolsCall
           );
         } else {
@@ -2190,7 +2214,7 @@ ${toolResult}`;
           labelName: workflow.labelName,
           labelValue: selectedValue,
         },
-        session.mcpAccessToken!,
+        mcpAccessToken!,
         config.mcp.endpoints.toolsCall
       );
 
@@ -2329,7 +2353,7 @@ To cancel, please reply with "cancel".`;
           toolResult = await executeTool(
             pending.intent,
             { appId: selectedApp.id },
-            session.mcpAccessToken!,
+            mcpAccessToken!,
             config.mcp.endpoints.toolsCall
           );
 
@@ -2372,7 +2396,7 @@ To cancel, please reply with "cancel".`;
       const toolResult = await executeTool(
         'list_available_tools_for_current_user',
         {},
-        session.mcpAccessToken!,
+        mcpAccessToken!,
         config.mcp.endpoints.toolsCall
       );
 
@@ -2398,7 +2422,7 @@ To cancel, please reply with "cancel".`;
       const toolResult = await executeTool(
         'list_manageable_apps',
         {},
-        session.mcpAccessToken!,
+        mcpAccessToken!,
         config.mcp.endpoints.toolsCall
       );
 
@@ -2436,7 +2460,7 @@ To cancel, please reply with "cancel".`;
           const appsResult = await executeTool(
             'list_manageable_apps',
             {},
-            session.mcpAccessToken!,
+            mcpAccessToken!,
             config.mcp.endpoints.toolsCall
           );
 
@@ -2486,7 +2510,7 @@ To cancel, please reply with "cancel".`;
         const toolResult = await executeTool(
           toolName,
           { appId },
-          session.mcpAccessToken!,
+          mcpAccessToken!,
           config.mcp.endpoints.toolsCall
         );
 
@@ -2552,7 +2576,7 @@ To cancel, please reply with "cancel".`;
           const appsResult = await executeTool(
             'list_manageable_apps',
             {},
-            session.mcpAccessToken!,
+            mcpAccessToken!,
             config.mcp.endpoints.toolsCall
           );
 
@@ -2614,7 +2638,7 @@ To cancel, please reply with "cancel".`;
           labelName,
           labelValue: labelName, // Try using labelName as value in case it matches
         },
-        session.mcpAccessToken!,
+        mcpAccessToken!,
         config.mcp.endpoints.toolsCall
       );
 
@@ -2741,7 +2765,7 @@ To cancel, please reply with "cancel".
           const appsResult = await executeTool(
             'list_manageable_apps',
             {},
-            session.mcpAccessToken!,
+            mcpAccessToken!,
             config.mcp.endpoints.toolsCall
           );
 
@@ -2882,7 +2906,7 @@ To cancel, please reply with "cancel".
           const appsResult = await executeTool(
             'list_manageable_apps',
             {},
-            session.mcpAccessToken!,
+            mcpAccessToken!,
             config.mcp.endpoints.toolsCall
           );
 
@@ -3050,7 +3074,7 @@ To cancel, please reply with "cancel".
           const appsResult = await executeTool(
             'list_manageable_apps',
             {},
-            session.mcpAccessToken!,
+            mcpAccessToken!,
             config.mcp.endpoints.toolsCall
           );
 
@@ -3162,7 +3186,7 @@ To cancel, please reply with "cancel".
           const appsResult = await executeTool(
             'list_manageable_apps',
             {},
-            session.mcpAccessToken!,
+            mcpAccessToken!,
             config.mcp.endpoints.toolsCall
           );
 
@@ -3531,7 +3555,7 @@ if (
           const toolResult = await executeTool(
             toolName,
             toolArgs,
-            session.mcpAccessToken!,
+            mcpAccessToken!,
             config.mcp.endpoints.toolsCall
           );
 

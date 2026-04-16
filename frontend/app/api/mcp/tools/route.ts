@@ -18,6 +18,7 @@
 import { NextResponse } from 'next/server';
 import { config } from '@/lib/config';
 import { getSession } from '@/lib/session';
+import { getMcpAccessToken } from '@/lib/token-cookies';
 
 interface McpTool {
   name: string;
@@ -51,11 +52,12 @@ export async function POST() {
   try {
     console.log('[MCP Tools] Fetching tools from MCP server');
 
-    // 1. Get MCP access token from session
+    // 1. Get MCP access token from cookie
     const session = await getSession();
+    const mcpAccessToken = await getMcpAccessToken();
 
-    if (!session.mcpAccessToken) {
-      console.error('[MCP Tools] No MCP access token found in session');
+    if (!mcpAccessToken) {
+      console.error('[MCP Tools] No MCP access token found');
       return NextResponse.json(
         {
           error: 'MCP token not available',
@@ -65,10 +67,9 @@ export async function POST() {
       );
     }
 
-    const mcpAccessToken = session.mcpAccessToken;
     const userId = session.userId;
 
-    console.log('[MCP Tools] Retrieved MCP access token from session', {
+    console.log('[MCP Tools] Retrieved MCP access token from cookie', {
       userId: userId || 'unknown',
     });
 

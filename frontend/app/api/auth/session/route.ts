@@ -21,10 +21,13 @@
 
 import { NextResponse } from 'next/server';
 import { getSession } from '@/lib/session';
+import { getUserAccessToken, getMcpAccessToken } from '@/lib/token-cookies';
 
 export async function GET() {
   try {
     const session = await getSession();
+    const userAccessToken = await getUserAccessToken();
+    const mcpAccessToken = await getMcpAccessToken();
 
     // Check if user is authenticated
     // User is authenticated if they have a userId (persisted identity field)
@@ -33,13 +36,15 @@ export async function GET() {
     const authenticated = !!session.userId;
 
     // Build safe response with metadata only
+    // Note: Access tokens are now stored in separate cookies, not in session
     const response = {
       authenticated,
       userId: session.userId || undefined,
       userEmail: session.userEmail || undefined,
       hasIdToken: !!session.idToken,
       hasIdJag: !!session.idJag,
-      hasMcpAccessToken: !!session.mcpAccessToken,
+      hasUserAccessToken: !!userAccessToken,
+      hasMcpAccessToken: !!mcpAccessToken,
     };
 
     return NextResponse.json(response);
@@ -51,6 +56,7 @@ export async function GET() {
       authenticated: false,
       hasIdToken: false,
       hasIdJag: false,
+      hasUserAccessToken: false,
       hasMcpAccessToken: false,
     });
   }

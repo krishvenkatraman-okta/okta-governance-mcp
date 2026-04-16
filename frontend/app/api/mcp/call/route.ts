@@ -29,6 +29,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { config } from '@/lib/config';
 import { getSession } from '@/lib/session';
+import { getMcpAccessToken } from '@/lib/token-cookies';
 
 interface ToolCallRequest {
   toolName: string;
@@ -49,11 +50,12 @@ export async function POST(request: NextRequest) {
   try {
     console.log('[MCP Call] Starting tool execution');
 
-    // 1. Get MCP access token from session
+    // 1. Get MCP access token from cookie
     const session = await getSession();
+    const mcpAccessToken = await getMcpAccessToken();
 
-    if (!session.mcpAccessToken) {
-      console.error('[MCP Call] No MCP access token found in session');
+    if (!mcpAccessToken) {
+      console.error('[MCP Call] No MCP access token found');
       return NextResponse.json(
         {
           success: false,
@@ -63,8 +65,6 @@ export async function POST(request: NextRequest) {
         { status: 401 }
       );
     }
-
-    const mcpAccessToken = session.mcpAccessToken;
 
     // 2. Parse request body
     const body: ToolCallRequest = await request.json();

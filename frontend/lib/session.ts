@@ -10,8 +10,9 @@
  * 2. Remove tokens after they're no longer needed:
  *    - idToken removed after ID-JAG exchange
  *    - idJag removed after MCP access token exchange
- * 3. Don't store orgAccessToken (not needed for token exchanges)
- * 4. Keep only essential metadata (expiry timestamps)
+ * 3. JWT access tokens (userAccessToken, mcpAccessToken) stored in separate cookies
+ *    (see lib/token-cookies.ts) to save ~2,360 bytes in session
+ * 4. Keep only workflow data and user identity in session
  */
 
 import { getIronSession, IronSession } from 'iron-session';
@@ -22,20 +23,16 @@ export interface SessionData {
   codeVerifier?: string;
   state?: string;
 
-  // Tokens (cleaned up after use)
+  // Tokens (cleaned up after use - temporary storage only)
   idToken?: string;           // Removed after ID-JAG exchange
   idJag?: string;             // Removed after MCP access token exchange
-  mcpAccessToken?: string;    // Kept for MCP server calls
 
   // Token metadata (minimal)
   idTokenExpiresAt?: number;
   idJagExpiresAt?: number;
-  mcpAccessTokenExpiresAt?: number;
 
-  // User's access token from OIDC (for end-user governance APIs)
-  // Separate from mcpAccessToken (which is for delegated admin)
-  userAccessToken?: string;
-  userAccessTokenExpiresAt?: number;
+  // NOTE: userAccessToken and mcpAccessToken are now stored in separate cookies
+  // (see lib/token-cookies.ts) to prevent session cookie bloat
 
   // User info (always kept)
   userId?: string;

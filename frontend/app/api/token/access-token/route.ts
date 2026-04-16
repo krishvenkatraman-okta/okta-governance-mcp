@@ -62,6 +62,7 @@ import { config } from '@/lib/config';
 import { buildAgentClientAssertion } from '@/lib/agent-client-assertion';
 import { getSession } from '@/lib/session';
 import { decodeJwt } from 'jose';
+import { setMcpAccessToken } from '@/lib/token-cookies';
 
 interface AccessTokenResponse {
   access_token: string;
@@ -184,14 +185,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 7. Store MCP access token in session and remove ID-JAG (no longer needed)
-    // COOKIE SIZE OPTIMIZATION: ID-JAG is only needed for this exchange
-    session.mcpAccessToken = mcpAccessToken;
-
-    // Store expiration time if available
-    if (decoded.exp) {
-      session.mcpAccessTokenExpiresAt = decoded.exp as number;
-    }
+    // 7. Store MCP access token in separate cookie (not in session to save space)
+    // COOKIE SIZE OPTIMIZATION: Store tokens in separate cookies, not iron-session
+    const expiresAt = decoded.exp ? (decoded.exp as number) : undefined;
+    await setMcpAccessToken(mcpAccessToken, expiresAt);
 
     // Remove ID-JAG from session - no longer needed after MCP access token exchange
     session.idJag = undefined;
@@ -199,7 +196,7 @@ export async function POST(request: NextRequest) {
 
     await session.save();
 
-    console.log('[Access Token Exchange] MCP access token stored, ID-JAG removed from session');
+    console.log('[Access Token Exchange] MCP access token stored in cookie, ID-JAG removed from session');
 
     // 8. Return success with metadata (NOT full token)
     const claims: Record<string, unknown> = {

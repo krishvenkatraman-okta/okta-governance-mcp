@@ -41,6 +41,7 @@ export const oktaScopes = {
   endUserApi: [
     'okta.accessRequests.catalog.read',
     'okta.accessRequests.request.read',
+    'okta.accessRequests.request.manage',  // Required for creating/managing access requests
     'okta.governance.accessCertifications.read',
     'okta.governance.accessCertifications.manage',
     'okta.governance.delegates.manage',

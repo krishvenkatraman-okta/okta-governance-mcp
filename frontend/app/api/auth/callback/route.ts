@@ -51,6 +51,7 @@ import { config } from '@/lib/config';
 import { getSession } from '@/lib/session';
 import { buildUserClientAssertion } from '@/lib/user-client-assertion';
 import { decodeJwt } from 'jose';
+import { setUserAccessToken } from '@/lib/token-cookies';
 
 interface TokenResponse {
   access_token: string;
@@ -208,13 +209,12 @@ export async function GET(request: NextRequest) {
       session.idTokenExpiresAt = decoded.exp as number;
     }
 
-    // Store user's access token for end-user governance APIs
+    // Store user's access token in separate cookie (not in session to save space)
     // This is separate from mcpAccessToken (used for delegated admin)
-    session.userAccessToken = tokenResponse.access_token;
-    if (tokenResponse.expires_in) {
-      // Calculate expiration timestamp (current time + expires_in seconds)
-      session.userAccessTokenExpiresAt = Math.floor(Date.now() / 1000) + tokenResponse.expires_in;
-    }
+    const expiresAt = tokenResponse.expires_in
+      ? Math.floor(Date.now() / 1000) + tokenResponse.expires_in
+      : undefined;
+    await setUserAccessToken(tokenResponse.access_token, expiresAt);
 
     // Clear PKCE parameters (no longer needed)
     session.codeVerifier = undefined;
