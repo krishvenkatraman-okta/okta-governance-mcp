@@ -18,12 +18,12 @@ import { generateAppActivityReportTool } from './governance/generate-app-activit
 import { generateReviewCandidatesTool } from './governance/generate-review-candidates.js';
 import { manageAppLabelsEnhancedTool } from './governance/manage-app-labels-enhanced.js';
 import { resolveUserTool } from './governance/resolve-user.js';
+import { manageAppCampaignsTool } from './governance/manage-campaigns.js';
 
 // Stubbed governance tools (authorization checks only)
 import {
   manageAppEntitlementsTool,
   manageAppBundlesTool,
-  manageAppCampaignsTool,
   createDelegatedAccessRequestTool,
   manageAppWorkflowsTool,
 } from './governance/stubs.js';

@@ -24,15 +24,13 @@ export async function GET() {
     // This ensures a clean slate for new login attempts
     const session = await getSession();
 
-    // Clear all tokens
+    // Clear all tokens (note: userAccessToken and mcpAccessToken are in separate cookies)
     session.idToken = undefined;
     session.idJag = undefined;
-    session.mcpAccessToken = undefined;
 
     // Clear all token expiry timestamps
     session.idTokenExpiresAt = undefined;
     session.idJagExpiresAt = undefined;
-    session.mcpAccessTokenExpiresAt = undefined;
 
     // Clear user info
     session.userId = undefined;

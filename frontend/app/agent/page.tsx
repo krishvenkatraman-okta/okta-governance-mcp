@@ -16,6 +16,7 @@ import ChatInterface from '@/components/ChatInterface';
 import ExecutionTracePanel from '@/components/ExecutionTracePanel';
 import DebugDrawer from '@/components/DebugDrawer';
 import ToolExplorer from '@/components/ToolExplorer';
+import GovernanceChecks from '@/components/GovernanceChecks';
 import { uiConfig } from '@/lib/ui-config';
 
 interface TokenState {
@@ -70,11 +71,13 @@ export default function AgentPage() {
   const [bootstrapError, setBootstrapError] = useState<string | null>(null);
   const [debugMode, setDebugMode] = useState(false);
   const [showToolExplorer, setShowToolExplorer] = useState(false);
+  const [showGovernanceChecks, setShowGovernanceChecks] = useState(false);
 
   // Check token state on mount
   useEffect(() => {
     checkTokenState();
   }, []);
+
 
   // Auto-bootstrap governed session after authentication
   useEffect(() => {
@@ -82,6 +85,18 @@ export default function AgentPage() {
       bootstrapGovernedSession();
     }
   }, [tokenState.authenticated, bootstrapState]);
+
+  // Check for governance items after bootstrap completes
+  useEffect(() => {
+    if (bootstrapState === 'ready') {
+      const governanceChecked = sessionStorage.getItem('governanceChecked');
+      console.log('[Bootstrap] governanceChecked flag:', governanceChecked);
+      if (!governanceChecked) {
+        console.log('[Bootstrap] Setting showGovernanceChecks to true');
+        setShowGovernanceChecks(true);
+      }
+    }
+  }, [bootstrapState]);
 
   /**
    * Bootstrap governed session automatically
@@ -95,6 +110,7 @@ export default function AgentPage() {
       if (tokenState.hasMcpAccessToken) {
         console.log('[Bootstrap] MCP access token already available');
         setBootstrapState('ready');
+        console.log('[Bootstrap] Governed session ready');
         return;
       }
 
@@ -424,6 +440,11 @@ export default function AgentPage() {
             <ToolExplorer onClose={() => setShowToolExplorer(false)} />
           </div>
         </div>
+      )}
+
+      {/* Governance Checks Modal */}
+      {showGovernanceChecks && (
+        <GovernanceChecks onDismiss={() => setShowGovernanceChecks(false)} />
       )}
     </div>
   );

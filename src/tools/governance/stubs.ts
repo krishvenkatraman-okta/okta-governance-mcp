@@ -84,35 +84,6 @@ export const manageAppBundlesTool: ToolDefinition = {
   handler: createStubHandler('manage_app_bundles'),
 };
 
-/**
- * Stub: manage_app_campaigns
- */
-export const manageAppCampaignsTool: ToolDefinition = {
-  definition: {
-    name: 'manage_app_campaigns',
-    description: 'Create and manage access certification campaigns for applications within your authorization scope (not yet implemented)',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        appId: {
-          type: 'string',
-          description: 'Application ID',
-        },
-        name: {
-          type: 'string',
-          description: 'Campaign name',
-        },
-        action: {
-          type: 'string',
-          enum: ['list', 'create', 'launch'],
-          description: 'Action to perform',
-        },
-      },
-      required: ['appId', 'action'],
-    },
-  },
-  handler: createStubHandler('manage_app_campaigns'),
-};
 
 /**
  * Stub: create_delegated_access_request

@@ -51,12 +51,68 @@ export const governanceClient = {
   request: governanceRequest,
 
   /**
-   * Campaigns (placeholder)
+   * Campaigns API
    */
   campaigns: {
-    list: async () => {
-      // TODO: Implement when campaigns tools are created
-      throw new Error('Not implemented');
+    /**
+     * List all campaigns
+     */
+    list: async (scopes: string): Promise<any[]> => {
+      return await governanceRequest('/governance/api/v1/campaigns', {
+        method: 'GET',
+        scopes,
+      });
+    },
+
+    /**
+     * Create a campaign
+     */
+    create: async (data: any, scopes: string): Promise<any> => {
+      return await governanceRequest('/governance/api/v1/campaigns', {
+        method: 'POST',
+        body: data,
+        scopes,
+      });
+    },
+
+    /**
+     * Get campaign by ID
+     */
+    getById: async (campaignId: string, scopes: string): Promise<any> => {
+      return await governanceRequest(`/governance/api/v1/campaigns/${campaignId}`, {
+        method: 'GET',
+        scopes,
+      });
+    },
+
+    /**
+     * Launch a campaign
+     */
+    launch: async (campaignId: string, scopes: string): Promise<any> => {
+      return await governanceRequest(`/governance/api/v1/campaigns/${campaignId}/launch`, {
+        method: 'POST',
+        scopes,
+      });
+    },
+
+    /**
+     * End a campaign
+     */
+    end: async (campaignId: string, scopes: string): Promise<any> => {
+      return await governanceRequest(`/governance/api/v1/campaigns/${campaignId}/end`, {
+        method: 'POST',
+        scopes,
+      });
+    },
+
+    /**
+     * Delete a campaign
+     */
+    delete: async (campaignId: string, scopes: string): Promise<void> => {
+      await governanceRequest(`/governance/api/v1/campaigns/${campaignId}`, {
+        method: 'DELETE',
+        scopes,
+      });
     },
   },
 

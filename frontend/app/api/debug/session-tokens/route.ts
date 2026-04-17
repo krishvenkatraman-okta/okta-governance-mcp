@@ -25,12 +25,15 @@
 
 import { NextResponse } from 'next/server';
 import { getSession } from '@/lib/session';
+import { getMcpAccessToken, getUserAccessToken } from '@/lib/token-cookies';
 import { config } from '@/lib/config';
 import { decodeJwt } from 'jose';
 
 export async function GET() {
   try {
     const session = await getSession();
+    const mcpAccessToken = await getMcpAccessToken();
+    const userAccessToken = await getUserAccessToken();
     const debugMode = config.debug.exposeTokens;
 
     // Helper to safely decode JWT
@@ -52,7 +55,8 @@ export async function GET() {
         : 'Debug mode disabled - raw tokens hidden',
       hasIdToken: !!session.idToken,
       hasIdJag: !!session.idJag,
-      hasMcpAccessToken: !!session.mcpAccessToken,
+      hasMcpAccessToken: !!mcpAccessToken,
+      hasUserAccessToken: !!userAccessToken,
       tokens: {},
     };
 
@@ -76,13 +80,23 @@ export async function GET() {
       }
     }
 
-    // MCP Access Token
-    if (session.mcpAccessToken) {
+    // MCP Access Token (from cookie)
+    if (mcpAccessToken) {
       response.tokens.mcpAccessToken = {
-        decoded: decodeToken(session.mcpAccessToken),
+        decoded: decodeToken(mcpAccessToken),
       };
       if (debugMode) {
-        response.tokens.mcpAccessToken.raw = session.mcpAccessToken;
+        response.tokens.mcpAccessToken.raw = mcpAccessToken;
+      }
+    }
+
+    // User Access Token (from cookie)
+    if (userAccessToken) {
+      response.tokens.userAccessToken = {
+        decoded: decodeToken(userAccessToken),
+      };
+      if (debugMode) {
+        response.tokens.userAccessToken.raw = userAccessToken;
       }
     }
 
