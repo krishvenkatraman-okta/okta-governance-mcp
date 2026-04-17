@@ -151,6 +151,7 @@ export default function GovernanceChecks({ onDismiss }: GovernanceChecksProps) {
   };
 
   const handleDismiss = () => {
+    console.log('[GovernanceChecks] Dismissing modal and setting sessionStorage flag');
     // Set sessionStorage flag to prevent showing again this session
     sessionStorage.setItem('governanceChecked', 'true');
     onDismiss();
@@ -158,6 +159,15 @@ export default function GovernanceChecks({ onDismiss }: GovernanceChecksProps) {
 
   // Calculate total items
   const totalItems = pendingRequests.length + assignedReviews.length + inactiveApps.length;
+
+  console.log('[GovernanceChecks] Render check:', {
+    loading,
+    totalItems,
+    error,
+    pendingRequests: pendingRequests.length,
+    assignedReviews: assignedReviews.length,
+    inactiveApps: inactiveApps.length,
+  });
 
   // If loading, show spinner
   if (loading) {
@@ -173,8 +183,13 @@ export default function GovernanceChecks({ onDismiss }: GovernanceChecksProps) {
     );
   }
 
-  // If no items, don't show the modal
+  // If no items, don't show the modal - but still mark as checked
   if (totalItems === 0 && !error) {
+    console.log('[GovernanceChecks] No items to show, auto-dismissing');
+    // Automatically set the flag so we don't keep showing the loading spinner
+    sessionStorage.setItem('governanceChecked', 'true');
+    // Use setTimeout to avoid calling onDismiss during render
+    setTimeout(() => onDismiss(), 0);
     return null;
   }
 

@@ -17,6 +17,15 @@ import Image from 'next/image';
 import { uiConfig } from '@/lib/ui-config';
 
 export default function AgentHeader() {
+  const handleLogout = () => {
+    // Clear governance check flag on logout
+    sessionStorage.removeItem('governanceChecked');
+    console.log('[AgentHeader] Cleared governanceChecked flag on logout');
+
+    // Redirect to logout endpoint
+    window.location.href = '/api/auth/logout';
+  };
+
   return (
     <header
       className="relative overflow-hidden"
@@ -57,12 +66,12 @@ export default function AgentHeader() {
           </div>
 
           {/* Logout Button - Subtle */}
-          <a
-            href="/api/auth/logout"
+          <button
+            onClick={handleLogout}
             className="px-4 py-2 rounded-lg text-sm font-medium text-white/90 hover:text-white hover:bg-white/10 transition-all"
           >
             Sign Out
-          </a>
+          </button>
         </div>
       </div>
 

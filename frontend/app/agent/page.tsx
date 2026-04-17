@@ -88,12 +88,20 @@ export default function AgentPage() {
 
   // Check for governance items after bootstrap completes
   useEffect(() => {
+    console.log('[Bootstrap] Governance check useEffect triggered:', {
+      bootstrapState,
+      showGovernanceChecks,
+    });
+
     if (bootstrapState === 'ready') {
       const governanceChecked = sessionStorage.getItem('governanceChecked');
-      console.log('[Bootstrap] governanceChecked flag:', governanceChecked);
+      console.log('[Bootstrap] Bootstrap ready, governanceChecked flag:', governanceChecked);
+
       if (!governanceChecked) {
-        console.log('[Bootstrap] Setting showGovernanceChecks to true');
+        console.log('[Bootstrap] No flag found, setting showGovernanceChecks to true');
         setShowGovernanceChecks(true);
+      } else {
+        console.log('[Bootstrap] Flag already set, skipping governance check');
       }
     }
   }, [bootstrapState]);
