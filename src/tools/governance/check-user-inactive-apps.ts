@@ -77,7 +77,33 @@ async function handler(
 
     console.log(`[CheckUserInactiveApps] Found ${assignedApps.length} assigned apps`);
 
-    if (assignedApps.length === 0) {
+    // Filter for governance-enabled apps only
+    console.log('[CheckUserInactiveApps] Filtering for governance-enabled apps...');
+    const governanceEnabledApps = [];
+
+    for (const app of assignedApps) {
+      try {
+        // Fetch full app details to check governance status
+        const appDetails = await appsClient.getById(app.id);
+
+        // Check if governance features (Entitlement Management) are enabled
+        const settings = (appDetails as any).settings;
+        const emOptInStatus = settings?.emOptInStatus || 'DISABLED';
+
+        if (emOptInStatus === 'ENABLED') {
+          governanceEnabledApps.push(appDetails);
+          console.log(`[CheckUserInactiveApps] ✓ ${app.label} is governance-enabled`);
+        } else {
+          console.log(`[CheckUserInactiveApps] ✗ ${app.label} is not governance-enabled (${emOptInStatus})`);
+        }
+      } catch (error) {
+        console.warn(`[CheckUserInactiveApps] Failed to check governance status for app ${app.id}:`, error);
+      }
+    }
+
+    console.log(`[CheckUserInactiveApps] Found ${governanceEnabledApps.length} governance-enabled apps (filtered from ${assignedApps.length})`);
+
+    if (governanceEnabledApps.length === 0) {
       return createJsonResponse({
         user: {
           id: user.id,
@@ -86,9 +112,10 @@ async function handler(
         },
         inactiveApps: [],
         summary: {
-          totalApps: 0,
+          totalApps: assignedApps.length,
+          governanceEnabledApps: 0,
           inactiveApps: 0,
-          message: 'User has no app assignments',
+          message: 'User has no governance-enabled app assignments',
         },
       });
     }
@@ -103,8 +130,8 @@ async function handler(
     const inactiveApps: InactiveApp[] = [];
     const now = new Date();
 
-    // Check each app for user activity
-    for (const app of assignedApps) {
+    // Check each governance-enabled app for user activity
+    for (const app of governanceEnabledApps) {
       try {
         console.log(`[CheckUserInactiveApps] Checking app: ${app.label} (${app.id})`);
 
@@ -176,13 +203,15 @@ async function handler(
           from: sinceISO,
           to: new Date().toISOString(),
         },
+        governanceEnabledOnly: true,
       },
       summary: {
         totalApps: assignedApps.length,
+        governanceEnabledApps: governanceEnabledApps.length,
         inactiveApps: inactiveApps.length,
         message: inactiveApps.length > 0
-          ? `Found ${inactiveApps.length} app${inactiveApps.length === 1 ? '' : 's'} not used in ${inactivityDays}+ days`
-          : `All apps have been accessed within the last ${inactivityDays} days`,
+          ? `Found ${inactiveApps.length} governance-enabled app${inactiveApps.length === 1 ? '' : 's'} not used in ${inactivityDays}+ days`
+          : `All governance-enabled apps have been accessed within the last ${inactivityDays} days`,
       },
       inactiveApps: inactiveApps.map((app) => ({
         appId: app.appId,
@@ -219,7 +248,7 @@ export const checkUserInactiveAppsTool: ToolDefinition = {
   definition: {
     name: 'check_user_inactive_apps',
     description:
-      'Check which apps a specific user has not used in 60+ days by analyzing system logs. Returns list of inactive apps with recommendations for access removal.',
+      'Check which governance-enabled apps a specific user has not used in 60+ days by analyzing system logs. Only checks apps where emOptInStatus=ENABLED. Returns list of inactive apps with recommendations for access removal.',
     inputSchema: {
       type: 'object',
       properties: {
