@@ -158,4 +158,40 @@ export const appsClient = {
     const idSet = new Set(appIds);
     return apps.filter((app) => idSet.has(app.id));
   },
+
+  /**
+   * List apps assigned to a specific user
+   *
+   * @param userId - User ID
+   * @returns Array of applications assigned to the user
+   */
+  async listUserApps(userId: string): Promise<OktaApp[]> {
+    const accessToken = await getServiceAccessToken(['okta.apps.read', 'okta.users.read']);
+    const url = `${config.okta.apiV1}/apps?filter=user.id eq "${userId}"&limit=200`;
+
+    console.debug('[AppsClient] Listing apps for user:', { userId });
+
+    const response = await fetch(url, {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Accept': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      console.error('[AppsClient] Failed to list user apps:', {
+        userId,
+        status: response.status,
+        error,
+      });
+      throw new Error(`Failed to list user apps: ${response.status} ${response.statusText}`);
+    }
+
+    const apps = (await response.json()) as OktaApp[];
+
+    console.debug(`[AppsClient] Retrieved ${apps.length} apps for user ${userId}`);
+
+    return apps;
+  },
 };

@@ -37,17 +37,7 @@ export async function GET() {
 
     console.log(`[InactiveApps] Checking inactive apps for user ${session.userId}`);
 
-    // TODO: Create MCP tool 'check_user_inactive_apps' that:
-    // 1. Gets user's app assignments using service credentials
-    // 2. Queries system logs to find last sign-in for each app
-    // 3. Identifies apps not accessed in INACTIVITY_DAYS
-    // 4. Checks if self-cert campaign exists and was created in last 60 days
-    // 5. If no recent campaign, creates new self-certification campaign
-    // 6. Returns list of inactive apps with campaign link
-
-    // For now, call generate_access_review_candidates as a workaround
-    // This will be replaced with the proper tool
-
+    // Call MCP tool to check user's inactive apps
     const mcpResponse = await fetch(config.mcp.endpoints.toolsCall, {
       method: 'POST',
       headers: {
@@ -55,8 +45,11 @@ export async function GET() {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        name: 'list_manageable_apps',
-        arguments: {},
+        name: 'check_user_inactive_apps',
+        arguments: {
+          userId: session.userId,
+          inactivityDays: INACTIVITY_DAYS,
+        },
       }),
     });
 
@@ -66,10 +59,31 @@ export async function GET() {
     }
 
     const mcpResult = await mcpResponse.json();
+    console.log('[InactiveApps] MCP result:', JSON.stringify(mcpResult, null, 2));
 
-    // For now, return empty array
-    // TODO: Parse MCP response and return inactive apps with campaign info
-    console.log('[InactiveApps] MCP tool for inactive apps not yet fully implemented');
+    // Extract inactive apps from MCP response
+    if (mcpResult.content && Array.isArray(mcpResult.content)) {
+      const textContent = mcpResult.content.find((c: any) => c.type === 'text');
+      if (textContent && textContent.text) {
+        try {
+          const data = JSON.parse(textContent.text);
+          const inactiveApps = data.inactiveApps || [];
+
+          console.log(`[InactiveApps] Found ${inactiveApps.length} inactive apps`);
+
+          // Return formatted response
+          return NextResponse.json(inactiveApps.map((app: any) => ({
+            appId: app.appId,
+            appName: app.appLabel || app.appName,
+            lastAccess: app.lastAccess,
+            daysSinceLastAccess: app.daysSinceLastAccess,
+            recommendation: app.recommendation,
+          })));
+        } catch (parseError) {
+          console.error('[InactiveApps] Failed to parse MCP response:', parseError);
+        }
+      }
+    }
 
     return NextResponse.json([]);
   } catch (error: any) {

@@ -147,3 +147,38 @@ export async function findUserByUsernameOrEmail(
     return null;
   }
 }
+
+/**
+ * Get user by ID or login
+ *
+ * First tries to get by ID, then falls back to searching by username/email
+ *
+ * @param userIdOrLogin - User ID or login/email
+ * @returns Okta user object if found, throws error otherwise
+ */
+export async function getByIdOrLogin(userIdOrLogin: string): Promise<OktaUser> {
+  // Try by ID first (if it looks like a user ID)
+  if (userIdOrLogin.match(/^00u[a-zA-Z0-9]+$/)) {
+    const user = await getUserById(userIdOrLogin);
+    if (user) {
+      return user;
+    }
+  }
+
+  // Fall back to search by username/email
+  const user = await findUserByUsernameOrEmail(userIdOrLogin);
+  if (user) {
+    return user;
+  }
+
+  throw new Error(`User not found: ${userIdOrLogin}`);
+}
+
+/**
+ * Users API client
+ */
+export const usersClient = {
+  getUserById,
+  findUserByUsernameOrEmail,
+  getByIdOrLogin,
+};

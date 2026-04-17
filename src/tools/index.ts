@@ -19,6 +19,7 @@ import { generateReviewCandidatesTool } from './governance/generate-review-candi
 import { manageAppLabelsEnhancedTool } from './governance/manage-app-labels-enhanced.js';
 import { resolveUserTool } from './governance/resolve-user.js';
 import { manageAppCampaignsTool } from './governance/manage-campaigns.js';
+import { checkUserInactiveAppsTool } from './governance/check-user-inactive-apps.js';
 
 // Stubbed governance tools (authorization checks only)
 import {
@@ -49,6 +50,7 @@ export const allTools: ToolDefinition[] = [
   generateReviewCandidatesTool,
   manageAppLabelsEnhancedTool,
   resolveUserTool,
+  checkUserInactiveAppsTool,
 
   // Stubbed governance tools (authorization enforced, execution pending)
   manageAppEntitlementsTool,
