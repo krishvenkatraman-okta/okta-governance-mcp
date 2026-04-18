@@ -2253,14 +2253,18 @@ Be concise but informative. If there are no items, suggest what the user might d
 
         // Call LiteLLM to format the response
         const litellmApiBase = process.env.LITELLM_API_BASE || 'http://localhost:4000';
-        const litellmResponse = await fetch(`${litellmApiBase}/chat/completions`, {
+        const litellmApiKey = process.env.LITELLM_API_KEY;
+        const litellmModel = process.env.LITELLM_MODEL || 'claude-3-5-sonnet-20241022';
+
+        const litellmResponse = await fetch(`${litellmApiBase}/v1/chat/completions`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             Accept: 'application/json',
+            ...(litellmApiKey && { Authorization: `Bearer ${litellmApiKey}` }),
           },
           body: JSON.stringify({
-            model: 'claude-3-5-sonnet-20241022',
+            model: litellmModel,
             messages: [
               { role: 'system', content: systemPrompt },
               { role: 'user', content: userText },
