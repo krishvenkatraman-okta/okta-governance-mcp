@@ -208,14 +208,20 @@ export class OktaGovernanceUserAPI {
   /**
    * Get current user's available catalog entries
    *
-   * Endpoint: GET /governance/api/v1/me/catalogs
-   * Scope: okta.governance.catalogs.read
+   * Endpoint: GET /governance/api/v2/my/catalogs/default/entries
+   * Scope: okta.accessRequests.catalog.read
    *
    * @param params - Optional query parameters (limit)
    * @returns User's available catalog entries (apps, groups, entitlements they can request)
    */
   async getMyCatalogEntries(params?: GetMyCatalogEntriesParams): Promise<GovernanceResponse<any>> {
-    return this.request('/governance/api/v1/me/catalogs', params);
+    // Use V2 API with default catalog and filter for top-level entries only
+    const filter = 'not(parent pr)';
+    const requestParams = {
+      ...params,
+      filter,
+    };
+    return this.request('/governance/api/v2/my/catalogs/default/entries', requestParams);
   }
 
   /**
