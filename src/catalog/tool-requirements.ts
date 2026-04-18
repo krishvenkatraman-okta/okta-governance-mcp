@@ -425,6 +425,122 @@ const requirements: Record<string, ToolRequirement> = {
       'https://developer.okta.com/docs/api/openapi/okta-governance/governance/tag/Campaigns/',
     ],
   },
+
+  /**
+   * ==========================================
+   * GROUP MANAGEMENT TOOLS
+   * ==========================================
+   */
+
+  list_manageable_groups: {
+    toolName: 'list_manageable_groups',
+    description: 'List groups manageable in your current authorization scope (all groups for organization-wide access, owned groups for scoped access)',
+    mappedEndpoints: ['List all groups', 'Get Group'],
+    endpointCategories: ['Groups'],
+    requiredScopes: ['okta.groups.read'],
+    requiredCapabilities: [
+      'groups.manage.owned',
+      'groups.manage.all',
+    ],
+    requiredRoles: ['GROUP_ADMIN', 'SUPER_ADMIN', 'ORG_ADMIN'],
+    targetConstraints: ['no_constraint'],
+    requiresTargetResource: false,
+    notes: 'Returns all groups for SUPER_ADMIN/ORG_ADMIN, only owned groups for GROUP_ADMIN.',
+    documentationRefs: ['https://developer.okta.com/docs/api/openapi/okta-management/management/tag/Group/'],
+  },
+
+  list_group_members: {
+    toolName: 'list_group_members',
+    description: 'List members of a group you have permission to manage',
+    mappedEndpoints: ['List Group users', 'Get Group'],
+    endpointCategories: ['Groups'],
+    requiredScopes: ['okta.groups.read', 'okta.users.read'],
+    requiredCapabilities: [
+      'groups.manage.owned',
+      'groups.manage.all',
+    ],
+    requiredRoles: ['GROUP_ADMIN', 'SUPER_ADMIN', 'ORG_ADMIN'],
+    targetConstraints: ['must_be_owned_group'],
+    requiresTargetResource: true,
+    notes: 'User must be GROUP_ADMIN with target group in their role targets, or SUPER_ADMIN/ORG_ADMIN',
+    documentationRefs: ['https://developer.okta.com/docs/api/openapi/okta-management/management/tag/Group/'],
+  },
+
+  manage_group_membership: {
+    toolName: 'manage_group_membership',
+    description: 'Manage group membership - check if user is in group, add user to group, or remove user from group',
+    mappedEndpoints: ['Add User to Group', 'Remove User from Group', 'List Group users'],
+    endpointCategories: ['Groups'],
+    requiredScopes: ['okta.groups.read', 'okta.groups.manage', 'okta.users.read'],
+    requiredCapabilities: [
+      'groups.manage.owned',
+      'groups.manage.all',
+    ],
+    requiredRoles: ['GROUP_ADMIN', 'SUPER_ADMIN', 'ORG_ADMIN'],
+    targetConstraints: ['must_be_owned_group'],
+    requiresTargetResource: true,
+    conditionalScopes: [
+      {
+        condition: 'When checking membership only',
+        scopes: ['okta.groups.read', 'okta.users.read'],
+        description: 'Read-only access',
+      },
+      {
+        condition: 'When adding/removing members',
+        scopes: ['okta.groups.read', 'okta.groups.manage', 'okta.users.read'],
+        description: 'Full group management',
+      },
+    ],
+    notes: 'User must be GROUP_ADMIN with target group in their role targets, or SUPER_ADMIN/ORG_ADMIN',
+    documentationRefs: ['https://developer.okta.com/docs/api/openapi/okta-management/management/tag/Group/'],
+  },
+
+  manage_group_campaigns: {
+    toolName: 'manage_group_campaigns',
+    description: 'Create and manage access certification campaigns for groups you have permission to manage',
+    mappedEndpoints: [
+      'Create a campaign',
+      'List all campaigns',
+      'Retrieve a campaign',
+      'Launch a campaign',
+    ],
+    endpointCategories: ['Campaigns', 'Groups'],
+    requiredScopes: [
+      'okta.governance.accessCertifications.read',
+      'okta.governance.accessCertifications.manage',
+      'okta.groups.read',
+    ],
+    requiredCapabilities: [
+      'groups.manage.owned',
+      'campaigns.manage.owned',
+      'groups.manage.all',
+      'campaigns.manage.all',
+    ],
+    requiredRoles: ['GROUP_ADMIN', 'SUPER_ADMIN', 'ORG_ADMIN'],
+    targetConstraints: ['must_be_owned_group'],
+    requiresTargetResource: true,
+    conditionalScopes: [
+      {
+        condition: 'When listing campaigns only',
+        scopes: ['okta.governance.accessCertifications.read'],
+        description: 'Read-only access',
+      },
+      {
+        condition: 'When creating/launching campaigns',
+        scopes: [
+          'okta.governance.accessCertifications.read',
+          'okta.governance.accessCertifications.manage',
+          'okta.groups.read',
+        ],
+        description: 'Full campaign management + group access',
+      },
+    ],
+    notes: 'User must be GROUP_ADMIN with target group in their role targets, or SUPER_ADMIN/ORG_ADMIN. Creates GROUP_MEMBERSHIP campaigns.',
+    documentationRefs: [
+      'https://developer.okta.com/docs/api/openapi/okta-governance/governance/tag/Campaigns/',
+      'https://developer.okta.com/docs/api/openapi/okta-management/management/tag/Group/',
+    ],
+  },
 };
 
 /**

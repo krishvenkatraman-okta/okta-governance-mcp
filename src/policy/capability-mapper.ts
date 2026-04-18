@@ -25,6 +25,7 @@ function mapRolesToCapabilities(
       'request_for_others.all',
       'workflow.manage.all',
       'reports.syslog.all',
+      'groups.manage.all',
       'settings.governance.manage',
       'roles.manage',
       'apps.manage',
@@ -42,6 +43,7 @@ function mapRolesToCapabilities(
       'request_for_others.all',
       'workflow.manage.all',
       'reports.syslog.all',
+      'groups.manage.all',
       'settings.governance.manage',
     ];
   }
@@ -61,7 +63,7 @@ function mapRolesToCapabilities(
 
   // Group admin with targets
   if (roles.groupAdmin && targets.groups.length > 0) {
-    capabilities.push('campaigns.manage.owned', 'reports.syslog.owned');
+    capabilities.push('groups.manage.owned', 'campaigns.manage.owned', 'reports.syslog.owned');
   }
 
   // Read-only admin gets no mutation capabilities

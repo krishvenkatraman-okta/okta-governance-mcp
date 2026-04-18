@@ -22,6 +22,7 @@ export type Capability =
   | 'request_for_others.owned'
   | 'workflow.manage.owned'
   | 'reports.syslog.owned'
+  | 'groups.manage.owned'
   // Super admin capabilities
   | 'entitlements.manage.all'
   | 'labels.manage.all'
@@ -30,6 +31,7 @@ export type Capability =
   | 'request_for_others.all'
   | 'workflow.manage.all'
   | 'reports.syslog.all'
+  | 'groups.manage.all'
   | 'settings.governance.manage'
   | 'roles.manage'
   | 'apps.manage'
