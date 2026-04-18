@@ -70,18 +70,21 @@ async function handler(
     // Resolve user (by ID or login)
     const user = await usersClient.getByIdOrLogin(userId);
 
-    console.log('[CheckUserInactiveApps] Fetching user app assignments...');
+    console.log('[CheckUserInactiveApps] Fetching all active apps...');
 
-    // Get all apps assigned to the user
-    const assignedApps = await appsClient.listUserApps(user.id);
+    // Get all active apps from the org
+    const allApps = await appsClient.list({
+      filter: 'status eq "ACTIVE"',
+      limit: 200,
+    });
 
-    console.log(`[CheckUserInactiveApps] Found ${assignedApps.length} assigned apps`);
+    console.log(`[CheckUserInactiveApps] Found ${allApps.length} total active apps`);
 
     // Filter for governance-enabled apps only
     console.log('[CheckUserInactiveApps] Filtering for governance-enabled apps...');
     const governanceEnabledApps = [];
 
-    for (const app of assignedApps) {
+    for (const app of allApps) {
       try {
         // Fetch full app details to check governance status
         const appDetails = await appsClient.getById(app.id);
@@ -92,18 +95,27 @@ async function handler(
 
         if (emOptInStatus === 'ENABLED') {
           governanceEnabledApps.push(appDetails);
-          console.log(`[CheckUserInactiveApps] ✓ ${app.label} is governance-enabled`);
-        } else {
-          console.log(`[CheckUserInactiveApps] ✗ ${app.label} is not governance-enabled (${emOptInStatus})`);
         }
       } catch (error) {
         console.warn(`[CheckUserInactiveApps] Failed to check governance status for app ${app.id}:`, error);
       }
     }
 
-    console.log(`[CheckUserInactiveApps] Found ${governanceEnabledApps.length} governance-enabled apps (filtered from ${assignedApps.length})`);
+    console.log(`[CheckUserInactiveApps] Found ${governanceEnabledApps.length} governance-enabled apps (filtered from ${allApps.length})`);
 
-    if (governanceEnabledApps.length === 0) {
+    // Get user's app assignments
+    console.log('[CheckUserInactiveApps] Fetching user app assignments...');
+    const assignedApps = await appsClient.listUserApps(user.id);
+    const assignedAppIds = new Set(assignedApps.map(app => app.id));
+
+    console.log(`[CheckUserInactiveApps] User is assigned to ${assignedApps.length} apps`);
+
+    // Filter governance-enabled apps to only those assigned to the user
+    const userGovernanceApps = governanceEnabledApps.filter(app => assignedAppIds.has(app.id));
+
+    console.log(`[CheckUserInactiveApps] User has ${userGovernanceApps.length} governance-enabled apps assigned`);
+
+    if (userGovernanceApps.length === 0) {
       return createJsonResponse({
         user: {
           id: user.id,
@@ -130,20 +142,21 @@ async function handler(
     const inactiveApps: InactiveApp[] = [];
     const now = new Date();
 
-    // Check each governance-enabled app for user activity
-    for (const app of governanceEnabledApps) {
+    // Check each user's governance-enabled app for SSO authentication activity
+    for (const app of userGovernanceApps) {
       try {
         console.log(`[CheckUserInactiveApps] Checking app: ${app.label} (${app.id})`);
 
-        // Query system logs for user's access to this app
+        // Query system logs for user's SSO authentication to this app
+        // Use specific event type for SSO authentication
         const events = await systemLogClient.queryLogs({
-          filter: `target.id eq "${app.id}" and actor.id eq "${user.id}"`,
+          filter: `actor.id eq "${user.id}" and target.id eq "${app.id}" and eventType eq "user.authentication.sso"`,
           since: sinceISO,
-          limit: 100,
+          limit: 10,
           sortOrder: 'DESCENDING',
         });
 
-        console.log(`[CheckUserInactiveApps] Found ${events.length} log events for app ${app.label}`);
+        console.log(`[CheckUserInactiveApps] Found ${events.length} SSO authentication events for app ${app.label}`);
 
         // Find most recent access
         let lastAccessDate: Date | null = null;
@@ -207,7 +220,8 @@ async function handler(
       },
       summary: {
         totalApps: assignedApps.length,
-        governanceEnabledApps: governanceEnabledApps.length,
+        totalGovernanceEnabledApps: governanceEnabledApps.length,
+        userGovernanceEnabledApps: userGovernanceApps.length,
         inactiveApps: inactiveApps.length,
         message: inactiveApps.length > 0
           ? `Found ${inactiveApps.length} governance-enabled app${inactiveApps.length === 1 ? '' : 's'} not used in ${inactivityDays}+ days`
