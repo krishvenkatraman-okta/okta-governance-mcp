@@ -20,6 +20,10 @@ import { manageAppLabelsEnhancedTool } from './governance/manage-app-labels-enha
 import { resolveUserTool } from './governance/resolve-user.js';
 import { manageAppCampaignsTool } from './governance/manage-campaigns.js';
 import { checkUserInactiveAppsTool } from './governance/check-user-inactive-apps.js';
+import { listManageableGroupsTool } from './governance/list-manageable-groups.js';
+import { listGroupMembersTool } from './governance/list-group-members.js';
+import { manageGroupMembershipTool } from './governance/manage-group-membership.js';
+import { manageGroupCampaignsTool } from './governance/manage-group-campaigns.js';
 
 // Stubbed governance tools (authorization checks only)
 import {
@@ -51,6 +55,10 @@ export const allTools: ToolDefinition[] = [
   manageAppLabelsEnhancedTool,
   resolveUserTool,
   checkUserInactiveAppsTool,
+  listManageableGroupsTool,
+  listGroupMembersTool,
+  manageGroupMembershipTool,
+  manageGroupCampaignsTool,
 
   // Stubbed governance tools (authorization enforced, execution pending)
   manageAppEntitlementsTool,
