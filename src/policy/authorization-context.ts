@@ -157,17 +157,19 @@ export async function resolveAuthorizationContextForSubject(
           break;
 
         case 'GROUP_ADMIN':
+        case 'GROUP_MEMBERSHIP_ADMIN':
           context.roles.groupAdmin = true;
           context.roles.regularUser = false;
 
           // Fetch group targets for this role
-          console.debug('[AuthorizationContext] Fetching GROUP_ADMIN targets from Okta...');
+          console.debug('[AuthorizationContext] Fetching GROUP_ADMIN/GROUP_MEMBERSHIP_ADMIN targets from Okta...');
           try {
             const groupTargets = await rolesClient.listGroupTargets(subject, role.id);
             context.targets.groups.push(...groupTargets);
 
-            console.log('[AuthorizationContext] Retrieved GROUP_ADMIN targets:', {
+            console.log('[AuthorizationContext] Retrieved group admin targets:', {
               roleId: role.id,
+              roleType: role.type,
               groupCount: groupTargets.length,
             });
           } catch (error) {
