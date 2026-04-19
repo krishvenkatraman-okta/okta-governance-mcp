@@ -3844,7 +3844,7 @@ Available Tools:
             model: litellmModel,
             messages: allMessages,
             tools: TOOL_DEFINITIONS,
-            tool_choice: 'auto',
+            tool_choice: 'required', // Force tool usage
             temperature: 0.0, // Zero temperature for strict factual grounding
             max_tokens: 2000,
           }),
@@ -3911,7 +3911,8 @@ Available Tools:
         typeof assistantMessage.content === 'string' &&
         !assistantMessage.tool_calls &&
         (assistantMessage.content.includes('"function":') ||
-          assistantMessage.content.includes('"name":') && assistantMessage.content.includes('"arguments":'))
+          assistantMessage.content.includes('"tool":') ||
+          (assistantMessage.content.includes('"name":') && assistantMessage.content.includes('"arguments":')))
       ) {
         console.error('[Chat] BLOCKED: LLM returned pseudo tool-call text instead of actual tool_calls', {
           contentPreview: assistantMessage.content.substring(0, 200),
