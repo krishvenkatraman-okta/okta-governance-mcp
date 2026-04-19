@@ -200,12 +200,23 @@ async function listGroupTargets(userId: string, roleId: string): Promise<string[
     const groups = (await response.json()) as OktaGroup[];
     const groupIds = groups.map((group) => group.id);
 
-    console.debug('[RolesClient] Retrieved group targets:', {
+    console.log('[RolesClient] Retrieved group targets:', {
       userId,
       roleId,
       count: groupIds.length,
       groupIds: groupIds.slice(0, 5), // Log first 5
+      rawResponse: groups.length > 0 ? 'has data' : 'EMPTY - API returned []',
     });
+
+    // If empty, log warning with details
+    if (groupIds.length === 0) {
+      console.warn('[RolesClient] WARNING: Group targets API returned empty array', {
+        userId,
+        roleId,
+        endpoint: `${config.okta.apiV1}/users/${userId}/roles/${roleId}/targets/groups`,
+        note: 'This may indicate GROUP_MEMBERSHIP_ADMIN uses a different API endpoint',
+      });
+    }
 
     return groupIds;
   } catch (error) {

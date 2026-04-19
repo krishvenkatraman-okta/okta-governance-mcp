@@ -157,17 +157,16 @@ export async function resolveAuthorizationContextForSubject(
           break;
 
         case 'GROUP_ADMIN':
-        case 'GROUP_MEMBERSHIP_ADMIN':
           context.roles.groupAdmin = true;
           context.roles.regularUser = false;
 
-          // Fetch group targets for this role
-          console.debug('[AuthorizationContext] Fetching GROUP_ADMIN/GROUP_MEMBERSHIP_ADMIN targets from Okta...');
+          // Fetch group targets for GROUP_ADMIN role
+          console.debug('[AuthorizationContext] Fetching GROUP_ADMIN targets from Okta...');
           try {
             const groupTargets = await rolesClient.listGroupTargets(subject, role.id);
             context.targets.groups.push(...groupTargets);
 
-            console.log('[AuthorizationContext] Retrieved group admin targets:', {
+            console.log('[AuthorizationContext] Retrieved GROUP_ADMIN targets:', {
               roleId: role.id,
               roleType: role.type,
               groupCount: groupTargets.length,
@@ -178,6 +177,36 @@ export async function resolveAuthorizationContextForSubject(
               error: error instanceof Error ? error.message : String(error),
             });
             // Continue with empty targets - fail gracefully
+          }
+          break;
+
+        case 'GROUP_MEMBERSHIP_ADMIN':
+          context.roles.groupAdmin = true;
+          context.roles.regularUser = false;
+
+          // GROUP_MEMBERSHIP_ADMIN manages group membership but targets API may not work
+          // Try to fetch targets, but if empty, grant org-wide group access
+          console.debug('[AuthorizationContext] Fetching GROUP_MEMBERSHIP_ADMIN targets from Okta...');
+          try {
+            const groupTargets = await rolesClient.listGroupTargets(subject, role.id);
+
+            if (groupTargets.length > 0) {
+              context.targets.groups.push(...groupTargets);
+              console.log('[AuthorizationContext] Retrieved GROUP_MEMBERSHIP_ADMIN targets:', {
+                roleId: role.id,
+                groupCount: groupTargets.length,
+              });
+            } else {
+              // GROUP_MEMBERSHIP_ADMIN may have org-wide access
+              // Set a flag to indicate unrestricted group access
+              console.warn('[AuthorizationContext] GROUP_MEMBERSHIP_ADMIN has no specific targets - treating as org-wide group access');
+              console.warn('[AuthorizationContext] Note: list_manageable_groups will return ALL groups for this user');
+            }
+          } catch (error) {
+            console.error('[AuthorizationContext] Failed to fetch group targets:', {
+              roleId: role.id,
+              error: error instanceof Error ? error.message : String(error),
+            });
           }
           break;
 

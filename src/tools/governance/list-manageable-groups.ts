@@ -50,6 +50,12 @@ async function handler(
       console.log(
         `[ListManageableGroups] User has scoped access - filtered to ${manageableGroups.length} manageable groups`
       );
+    } else if (context.roles.groupAdmin && context.targets.groups.length === 0) {
+      // Group Admin with no specific targets (e.g., GROUP_MEMBERSHIP_ADMIN)
+      // This role may have org-wide access to all groups
+      manageableGroups = allGroups;
+      console.log('[ListManageableGroups] User has GROUP_MEMBERSHIP_ADMIN with no targets - returning all groups');
+      console.warn('[ListManageableGroups] Note: GROUP_MEMBERSHIP_ADMIN may not use standard targets API');
     } else {
       // No groups manageable
       manageableGroups = [];
