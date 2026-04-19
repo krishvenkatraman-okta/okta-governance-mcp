@@ -3895,6 +3895,14 @@ Available Tools:
 
       const assistantMessage = choice.message;
 
+      console.log('[Chat] LLM response:', {
+        hasContent: !!assistantMessage.content,
+        hasToolCalls: !!assistantMessage.tool_calls,
+        toolCallsCount: assistantMessage.tool_calls?.length || 0,
+        contentPreview: assistantMessage.content?.substring(0, 100),
+        toolNames: assistantMessage.tool_calls?.map((tc: any) => tc.function?.name),
+      });
+
       // PART 2: Detect pseudo tool-call text (JSON in content instead of actual tool_calls)
       // If the assistant returns text that looks like a tool call JSON instead of using
       // actual tool_calls metadata, treat it as invalid ungrounded output
