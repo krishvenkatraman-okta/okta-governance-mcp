@@ -1118,6 +1118,10 @@ async function handleAwaitingConfirmation(
 // Read-only tools allowed in chat
 const ALLOWED_TOOLS = [
   'list_manageable_apps',
+  'list_manageable_groups',
+  'list_group_members',
+  'manage_group_membership',
+  'manage_group_campaigns',
   'generate_app_activity_report',
   'generate_access_review_candidates',
   'get_tool_requirements',
@@ -1139,6 +1143,102 @@ const TOOL_DEFINITIONS = [
             description: 'Include inactive applications (default: false)',
           },
         },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'list_manageable_groups',
+      description: 'List groups manageable in your current authorization scope. For organization-wide admins, returns all groups. For Group Admins, returns only groups in their role targets.',
+      parameters: {
+        type: 'object',
+        properties: {},
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'list_group_members',
+      description: 'List all members of a specific group. Only groups in your authorization scope can be accessed.',
+      parameters: {
+        type: 'object',
+        properties: {
+          groupId: {
+            type: 'string',
+            description: 'Group ID (e.g., 00g123456)',
+          },
+          limit: {
+            type: 'number',
+            description: 'Maximum number of members to return (default: 200)',
+          },
+        },
+        required: ['groupId'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'manage_group_membership',
+      description: 'Check if a user is a member of a group, add a user to a group, or remove a user from a group. Only groups in your authorization scope can be managed.',
+      parameters: {
+        type: 'object',
+        properties: {
+          groupId: {
+            type: 'string',
+            description: 'Group ID',
+          },
+          userId: {
+            type: 'string',
+            description: 'User ID or email address',
+          },
+          action: {
+            type: 'string',
+            enum: ['check', 'add', 'remove'],
+            description: 'Action to perform: check (verify membership), add (add user to group), remove (remove user from group)',
+          },
+        },
+        required: ['groupId', 'userId', 'action'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'manage_group_campaigns',
+      description: 'Create and launch access certification campaigns for groups. Only groups in your authorization scope can have campaigns created.',
+      parameters: {
+        type: 'object',
+        properties: {
+          action: {
+            type: 'string',
+            enum: ['create', 'launch', 'list'],
+            description: 'Campaign action: create (create new campaign), launch (start existing campaign), list (view campaigns)',
+          },
+          groupId: {
+            type: 'string',
+            description: 'Group ID (required for create)',
+          },
+          campaignId: {
+            type: 'string',
+            description: 'Campaign ID (required for launch)',
+          },
+          name: {
+            type: 'string',
+            description: 'Campaign name (optional for create)',
+          },
+          description: {
+            type: 'string',
+            description: 'Campaign description (optional for create)',
+          },
+          durationInDays: {
+            type: 'number',
+            description: 'Campaign duration in days (default: 30)',
+          },
+        },
+        required: ['action'],
       },
     },
   },
@@ -3553,6 +3653,8 @@ CRITICAL TOOL CALLING BEHAVIOR
 You MUST call a tool for ANY request involving:
 - apps
 - applications
+- groups
+- group membership
 - users
 - access
 - activity
@@ -3560,13 +3662,19 @@ You MUST call a tool for ANY request involving:
 - governance
 - review
 - risk
+- campaigns
 
-If the user provides an appId (starts with "0oa"):
+If the user provides an appId (starts with "0oa") or groupId (starts with "00g"):
 → CALL TOOL DIRECTLY
 
 If the user provides an app name:
 → FIRST call list_manageable_apps
 → FIND matching app
+→ THEN call appropriate tool
+
+If the user provides a group name or asks about groups:
+→ FIRST call list_manageable_groups
+→ FIND matching group
 → THEN call appropriate tool
 
 ════════════════════════════════════════
@@ -3582,7 +3690,43 @@ User: "List my applications"
 → CALL: list_manageable_apps
 
 
-2. ACTIVITY REPORT (APP ID)
+2. LIST GROUPS
+
+User: "What groups can I manage?"
+→ CALL: list_manageable_groups
+
+User: "List my groups"
+→ CALL: list_manageable_groups
+
+User: "Show groups I administrate"
+→ CALL: list_manageable_groups
+
+
+3. GROUP MEMBERS
+
+User: "List members of group 00g123"
+→ CALL: list_group_members({ groupId: "00g123" })
+
+User: "Who is in Engineering group?"
+Step 1: CALL list_manageable_groups
+Step 2: find matching group
+Step 3: CALL list_group_members({ groupId })
+
+
+4. GROUP MEMBERSHIP MANAGEMENT
+
+User: "Is user@example.com in group 00g123?"
+→ CALL: manage_group_membership({ groupId: "00g123", userId: "user@example.com", action: "check" })
+
+User: "Add user@example.com to Engineering"
+Step 1: CALL list_manageable_groups (find group)
+Step 2: CALL manage_group_membership({ groupId, userId: "user@example.com", action: "add" })
+
+User: "Remove user@example.com from 00g123"
+→ CALL: manage_group_membership({ groupId: "00g123", userId: "user@example.com", action: "remove" })
+
+
+5. ACTIVITY REPORT (APP ID)
 
 User: "Generate activity report for 0oa123"
 → CALL: generate_app_activity_report({ appId: "0oa123" })
@@ -3591,7 +3735,7 @@ User: "Show activity for 0oa123"
 → CALL: generate_app_activity_report({ appId: "0oa123" })
 
 
-3. ACTIVITY REPORT (APP NAME)
+6. ACTIVITY REPORT (APP NAME)
 
 User: "Generate activity report for ServiceNow"
 Step 1: CALL list_manageable_apps
@@ -3599,7 +3743,7 @@ Step 2: find matching app
 Step 3: CALL generate_app_activity_report({ appId })
 
 
-4. ACCESS REVIEW
+7. ACCESS REVIEW
 
 User: "Show inactive users for 0oa123"
 → CALL: generate_access_review_candidates({ appId: "0oa123" })
@@ -3640,6 +3784,10 @@ Current User Context:
 
 Available Tools:
 - list_manageable_apps
+- list_manageable_groups
+- list_group_members
+- manage_group_membership (check/add/remove users)
+- manage_group_campaigns (create/launch/list campaigns)
 - generate_app_activity_report
 - generate_access_review_candidates
 - get_tool_requirements
