@@ -3834,14 +3834,18 @@ Available Tools:
 
       let llmResponse;
       try {
-        const requestBody = {
+        const requestBody: any = {
           model: litellmModel,
           messages: allMessages,
           tools: TOOL_DEFINITIONS,
-          // Don't specify tool_choice - let LiteLLM handle it for Bedrock
           temperature: 0.0, // Zero temperature for strict factual grounding
           max_tokens: 2000,
         };
+
+        // On subsequent iterations (with tool results), we need tool_choice for Bedrock
+        if (iterations > 1 && toolExecuted) {
+          requestBody.tool_choice = { type: 'auto' };
+        }
 
         console.log('[Chat] Request to LiteLLM:', {
           endpoint: `${litellmEndpoint}/v1/chat/completions`,
