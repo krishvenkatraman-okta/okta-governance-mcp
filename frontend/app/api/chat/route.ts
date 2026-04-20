@@ -3834,20 +3834,36 @@ Available Tools:
 
       let llmResponse;
       try {
+        const requestBody = {
+          model: litellmModel,
+          messages: allMessages,
+          tools: TOOL_DEFINITIONS,
+          tool_choice: 'required', // Force tool usage
+          parallel_tool_calls: false,
+          temperature: 0.0, // Zero temperature for strict factual grounding
+          max_tokens: 2000,
+          // Add metadata to help LiteLLM understand we want native tool calling
+          metadata: {
+            native_tool_calling: true,
+          },
+        };
+
+        console.log('[Chat] Request to LiteLLM:', {
+          endpoint: `${litellmEndpoint}/v1/chat/completions`,
+          model: litellmModel,
+          messagesCount: allMessages.length,
+          toolsCount: TOOL_DEFINITIONS.length,
+          toolNames: TOOL_DEFINITIONS.map((t: any) => t.function.name),
+          tool_choice: 'required',
+        });
+
         llmResponse = await fetch(`${litellmEndpoint}/v1/chat/completions`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             ...(litellmApiKey && { Authorization: `Bearer ${litellmApiKey}` }),
           },
-          body: JSON.stringify({
-            model: litellmModel,
-            messages: allMessages,
-            tools: TOOL_DEFINITIONS,
-            tool_choice: 'required', // Force tool usage
-            temperature: 0.0, // Zero temperature for strict factual grounding
-            max_tokens: 2000,
-          }),
+          body: JSON.stringify(requestBody),
         });
       } catch (fetchError) {
         console.error('[Chat] LiteLLM connection failed:', {
