@@ -4099,16 +4099,25 @@ if (
             config.mcp.endpoints.toolsCall
           );
 
-          // Add tool result to messages
-          allMessages.push({
-            role: 'tool',
-            tool_call_id: toolCall.id,
-            content: toolResult,
+          // WORKAROUND: Return tool result directly instead of going back to LLM
+          // LiteLLM/Bedrock has issues with tool result format
+          console.log('[Chat] Returning tool result directly (skipping LLM iteration 2)');
+          return NextResponse.json({
+            message: toolResult,
+            toolCalls: assistantMessage.tool_calls.length,
           });
+
+          // Original code (commented out due to Bedrock incompatibility):
+          // Add tool result to messages
+          // allMessages.push({
+          //   role: 'tool',
+          //   tool_call_id: toolCall.id,
+          //   content: toolResult,
+          // });
         }
 
         // Continue loop to get final response
-        continue;
+        // continue; // Commented out - we now return directly above
       }
 
       // No more tool calls - return final response
