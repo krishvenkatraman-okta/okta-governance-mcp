@@ -3838,8 +3838,7 @@ Available Tools:
           model: litellmModel,
           messages: allMessages,
           tools: TOOL_DEFINITIONS,
-          tool_choice: { type: 'auto' }, // Use auto for Bedrock/Anthropic compatibility
-          parallel_tool_calls: false,
+          // Don't specify tool_choice - let LiteLLM handle it for Bedrock
           temperature: 0.0, // Zero temperature for strict factual grounding
           max_tokens: 2000,
         };
