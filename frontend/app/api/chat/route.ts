@@ -3914,6 +3914,58 @@ Available Tools:
         toolNames: assistantMessage.tool_calls?.map((tc: any) => tc.function?.name),
       });
 
+      // PART 1.5: Parse Claude XML format tool calls
+      // LiteLLM may return Claude's native XML format instead of OpenAI format
+      if (
+        !assistantMessage.tool_calls &&
+        assistantMessage.content &&
+        typeof assistantMessage.content === 'string' &&
+        (assistantMessage.content.includes('<tool_call>') || assistantMessage.content.includes('<function_calls>'))
+      ) {
+        console.log('[Chat] Detected Claude XML format tool call, attempting to parse');
+
+        // Try to parse <tool_call>{"name": "...", "params": {...}}</tool_call>
+        const toolCallMatch = assistantMessage.content.match(/<tool_call>\s*({[^}]+})\s*<\/tool_call>/);
+        if (toolCallMatch) {
+          try {
+            const toolCallData = JSON.parse(toolCallMatch[1]);
+            const toolName = toolCallData.name;
+            const toolParams = toolCallData.params || toolCallData.parameters || toolCallData.arguments || {};
+
+            console.log('[Chat] Parsed Claude XML tool call:', { toolName, toolParams });
+
+            // Convert to OpenAI format and execute
+            assistantMessage.tool_calls = [{
+              id: `call_${Date.now()}`,
+              type: 'function',
+              function: {
+                name: toolName,
+                arguments: JSON.stringify(toolParams),
+              },
+            }];
+          } catch (parseError) {
+            console.error('[Chat] Failed to parse Claude XML tool call:', parseError);
+          }
+        }
+
+        // Try to parse <function_calls><invoke name="..."><parameter>...</parameter></invoke></function_calls>
+        const invokeMatch = assistantMessage.content.match(/<invoke name="([^"]+)">/);
+        if (invokeMatch && !assistantMessage.tool_calls) {
+          const toolName = invokeMatch[1];
+          console.log('[Chat] Parsed Claude function_calls format:', { toolName });
+
+          // Convert to OpenAI format
+          assistantMessage.tool_calls = [{
+            id: `call_${Date.now()}`,
+            type: 'function',
+            function: {
+              name: toolName,
+              arguments: '{}', // Parameters would need more complex parsing
+            },
+          }];
+        }
+      }
+
       // PART 2: Detect pseudo tool-call text (JSON in content instead of actual tool_calls)
       // If the assistant returns text that looks like a tool call JSON instead of using
       // actual tool_calls metadata, treat it as invalid ungrounded output
