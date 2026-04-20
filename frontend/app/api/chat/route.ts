@@ -3914,55 +3914,82 @@ Available Tools:
         toolNames: assistantMessage.tool_calls?.map((tc: any) => tc.function?.name),
       });
 
-      // PART 1.5: Parse Claude XML format tool calls
-      // LiteLLM may return Claude's native XML format instead of OpenAI format
+      // PART 1.5: Parse various tool call formats returned by LiteLLM
+      // LiteLLM may return tool calls in different formats depending on the backend
       if (
         !assistantMessage.tool_calls &&
         assistantMessage.content &&
-        typeof assistantMessage.content === 'string' &&
-        (assistantMessage.content.includes('<tool_call>') || assistantMessage.content.includes('<function_calls>'))
+        typeof assistantMessage.content === 'string'
       ) {
-        console.log('[Chat] Detected Claude XML format tool call, attempting to parse');
-
-        // Try to parse <tool_call>{"name": "...", "params": {...}}</tool_call>
-        const toolCallMatch = assistantMessage.content.match(/<tool_call>\s*({[^}]+})\s*<\/tool_call>/);
-        if (toolCallMatch) {
+        // Format 1: JSON in markdown code block
+        // ```json\n{"tool": "...", "arguments": {...}}\n```
+        const jsonCodeBlockMatch = assistantMessage.content.match(/```json\s*\n\s*{\s*"tool"\s*:\s*"([^"]+)"\s*,\s*"arguments"\s*:\s*({[^}]*})\s*}\s*\n```/s);
+        if (jsonCodeBlockMatch) {
+          const toolName = jsonCodeBlockMatch[1];
+          let toolArgs = '{}';
           try {
-            const toolCallData = JSON.parse(toolCallMatch[1]);
-            const toolName = toolCallData.name;
-            const toolParams = toolCallData.params || toolCallData.parameters || toolCallData.arguments || {};
-
-            console.log('[Chat] Parsed Claude XML tool call:', { toolName, toolParams });
-
-            // Convert to OpenAI format and execute
-            assistantMessage.tool_calls = [{
-              id: `call_${Date.now()}`,
-              type: 'function',
-              function: {
-                name: toolName,
-                arguments: JSON.stringify(toolParams),
-              },
-            }];
-          } catch (parseError) {
-            console.error('[Chat] Failed to parse Claude XML tool call:', parseError);
+            toolArgs = jsonCodeBlockMatch[2];
+            // Validate it's valid JSON
+            JSON.parse(toolArgs);
+          } catch (e) {
+            toolArgs = '{}';
           }
-        }
 
-        // Try to parse <function_calls><invoke name="..."><parameter>...</parameter></invoke></function_calls>
-        const invokeMatch = assistantMessage.content.match(/<invoke name="([^"]+)">/);
-        if (invokeMatch && !assistantMessage.tool_calls) {
-          const toolName = invokeMatch[1];
-          console.log('[Chat] Parsed Claude function_calls format:', { toolName });
+          console.log('[Chat] Detected JSON code block tool call, converting to tool_calls format:', { toolName, toolArgs });
 
-          // Convert to OpenAI format
           assistantMessage.tool_calls = [{
             id: `call_${Date.now()}`,
             type: 'function',
             function: {
               name: toolName,
-              arguments: '{}', // Parameters would need more complex parsing
+              arguments: toolArgs,
             },
           }];
+        }
+
+        // Format 2: Claude XML format <tool_call>
+        if (!assistantMessage.tool_calls && assistantMessage.content.includes('<tool_call>')) {
+          console.log('[Chat] Detected Claude XML format tool call, attempting to parse');
+
+          const toolCallMatch = assistantMessage.content.match(/<tool_call>\s*({[^}]+})\s*<\/tool_call>/);
+          if (toolCallMatch) {
+            try {
+              const toolCallData = JSON.parse(toolCallMatch[1]);
+              const toolName = toolCallData.name;
+              const toolParams = toolCallData.params || toolCallData.parameters || toolCallData.arguments || {};
+
+              console.log('[Chat] Parsed Claude XML tool call:', { toolName, toolParams });
+
+              assistantMessage.tool_calls = [{
+                id: `call_${Date.now()}`,
+                type: 'function',
+                function: {
+                  name: toolName,
+                  arguments: JSON.stringify(toolParams),
+                },
+              }];
+            } catch (parseError) {
+              console.error('[Chat] Failed to parse Claude XML tool call:', parseError);
+            }
+          }
+        }
+
+        // Format 3: Claude function_calls format
+        if (!assistantMessage.tool_calls && assistantMessage.content.includes('<function_calls>')) {
+          const invokeMatch = assistantMessage.content.match(/<invoke name="([^"]+)">/);
+          if (invokeMatch) {
+            const toolName = invokeMatch[1];
+            console.log('[Chat] Parsed Claude function_calls format:', { toolName });
+
+            assistantMessage.tool_calls = [{
+              id: `call_${Date.now()}`,
+              type: 'function',
+              function: {
+                name: toolName,
+                arguments: '{}',
+              },
+            }];
+          }
         }
       }
 
