@@ -3838,14 +3838,10 @@ Available Tools:
           model: litellmModel,
           messages: allMessages,
           tools: TOOL_DEFINITIONS,
-          tool_choice: 'required', // Force tool usage
+          tool_choice: { type: 'auto' }, // Use auto for Bedrock/Anthropic compatibility
           parallel_tool_calls: false,
           temperature: 0.0, // Zero temperature for strict factual grounding
           max_tokens: 2000,
-          // Add metadata to help LiteLLM understand we want native tool calling
-          metadata: {
-            native_tool_calling: true,
-          },
         };
 
         console.log('[Chat] Request to LiteLLM:', {
@@ -3854,7 +3850,7 @@ Available Tools:
           messagesCount: allMessages.length,
           toolsCount: TOOL_DEFINITIONS.length,
           toolNames: TOOL_DEFINITIONS.map((t: any) => t.function.name),
-          tool_choice: 'required',
+          tool_choice: requestBody.tool_choice,
         });
 
         llmResponse = await fetch(`${litellmEndpoint}/v1/chat/completions`, {
