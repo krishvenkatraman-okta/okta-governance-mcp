@@ -140,40 +140,25 @@ export const groupsClient = {
 
   /**
    * Check if a user is a member of a group
+   * Note: Okta doesn't have a direct endpoint to check single user membership,
+   * so we list all members and check if the user is in the list
    */
   async isMember(groupId: string, userId: string): Promise<boolean> {
     try {
-      const accessToken = await getServiceAccessToken(['okta.groups.read', 'okta.users.read']);
-      const url = `${config.okta.apiV1}/groups/${groupId}/users/${userId}`;
-
       console.debug('[GroupsClient] Checking group membership:', { groupId, userId });
 
-      const response = await fetch(url, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-          'Accept': 'application/json',
-        },
+      // List all members and check if userId is in the list
+      const members = await this.listMembers(groupId, 200);
+      const isMember = members.some(member => member.id === userId);
+
+      console.debug('[GroupsClient] Membership check result:', {
+        groupId,
+        userId,
+        isMember,
+        totalMembers: members.length,
       });
 
-      if (response.status === 404) {
-        // User is not a member
-        return false;
-      }
-
-      if (!response.ok) {
-        const error = await response.text();
-        console.error('[GroupsClient] Failed to check group membership:', {
-          groupId,
-          userId,
-          status: response.status,
-          error,
-        });
-        throw new Error(`Failed to check membership: ${response.status} ${response.statusText}`);
-      }
-
-      // User is a member
-      return true;
+      return isMember;
     } catch (error) {
       console.error('[GroupsClient] Error checking membership:', error);
       throw error;
