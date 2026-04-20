@@ -78,20 +78,19 @@ function validateTargetConstraints(
     return { valid: true };
   }
 
-  // Extract appId from arguments
-  const appId = args.appId as string | undefined;
-
-  if (!appId) {
-    return {
-      valid: false,
-      error: 'Missing required argument: appId (this tool requires a target application)',
-    };
-  }
-
-  // Check if constraint is must_be_owned_app
+  // Check for app-based constraints
   if (requirement.targetConstraints.includes('must_be_owned_app')) {
-    if (context.roles.superAdmin) {
-      // Super Admin can access any app
+    const appId = args.appId as string | undefined;
+
+    if (!appId) {
+      return {
+        valid: false,
+        error: 'Missing required argument: appId (this tool requires a target application)',
+      };
+    }
+
+    if (context.roles.superAdmin || context.roles.orgAdmin) {
+      // Super Admin/Org Admin can access any app
       return { valid: true };
     }
 
@@ -101,6 +100,40 @@ function validateTargetConstraints(
         error: `Access denied: Application ${appId} is not in your owned apps`,
       };
     }
+
+    return { valid: true };
+  }
+
+  // Check for group-based constraints
+  if (requirement.targetConstraints.includes('must_be_owned_group')) {
+    const groupId = args.groupId as string | undefined;
+
+    if (!groupId) {
+      return {
+        valid: false,
+        error: 'Missing required argument: groupId (this tool requires a target group)',
+      };
+    }
+
+    if (context.roles.superAdmin || context.roles.orgAdmin) {
+      // Super Admin/Org Admin can access any group
+      return { valid: true };
+    }
+
+    // For GROUP_MEMBERSHIP_ADMIN with no targets, allow access to all groups
+    if (context.roles.groupAdmin && context.targets.groups.length === 0) {
+      console.log('[ToolExecutor] GROUP_MEMBERSHIP_ADMIN with no targets - allowing all groups');
+      return { valid: true };
+    }
+
+    if (!context.targets.groups.includes(groupId)) {
+      return {
+        valid: false,
+        error: `Access denied: Group ${groupId} is not in your owned groups`,
+      };
+    }
+
+    return { valid: true };
   }
 
   return { valid: true };
