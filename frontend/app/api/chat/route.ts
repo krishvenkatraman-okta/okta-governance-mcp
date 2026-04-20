@@ -3922,29 +3922,37 @@ Available Tools:
         typeof assistantMessage.content === 'string'
       ) {
         // Format 1: JSON in markdown code block
-        // ```json\n{"tool": "...", "arguments": {...}}\n```
-        const jsonCodeBlockMatch = assistantMessage.content.match(/```json\s*\n\s*{\s*"tool"\s*:\s*"([^"]+)"\s*,\s*"arguments"\s*:\s*({[^}]*})\s*}\s*\n```/s);
-        if (jsonCodeBlockMatch) {
-          const toolName = jsonCodeBlockMatch[1];
-          let toolArgs = '{}';
+        // Handles various field names: tool/name/function and arguments/parameters/params
+        const jsonBlockMatch = assistantMessage.content.match(/```json\s*\n([\s\S]*?)\n```/);
+        if (jsonBlockMatch) {
           try {
-            toolArgs = jsonCodeBlockMatch[2];
-            // Validate it's valid JSON
-            JSON.parse(toolArgs);
-          } catch (e) {
-            toolArgs = '{}';
+            const jsonContent = jsonBlockMatch[1].trim();
+            const toolData = JSON.parse(jsonContent);
+
+            // Extract tool name from various field names
+            const toolName = toolData.tool || toolData.name || toolData.function;
+            // Extract arguments from various field names
+            const toolArgs = toolData.arguments || toolData.parameters || toolData.params || {};
+
+            if (toolName) {
+              console.log('[Chat] Detected JSON code block tool call, converting to tool_calls format:', {
+                toolName,
+                toolArgs,
+                originalFormat: jsonContent
+              });
+
+              assistantMessage.tool_calls = [{
+                id: `call_${Date.now()}`,
+                type: 'function',
+                function: {
+                  name: toolName,
+                  arguments: typeof toolArgs === 'string' ? toolArgs : JSON.stringify(toolArgs),
+                },
+              }];
+            }
+          } catch (parseError) {
+            console.error('[Chat] Failed to parse JSON code block:', parseError);
           }
-
-          console.log('[Chat] Detected JSON code block tool call, converting to tool_calls format:', { toolName, toolArgs });
-
-          assistantMessage.tool_calls = [{
-            id: `call_${Date.now()}`,
-            type: 'function',
-            function: {
-              name: toolName,
-              arguments: toolArgs,
-            },
-          }];
         }
 
         // Format 2: Claude XML format <tool_call>
