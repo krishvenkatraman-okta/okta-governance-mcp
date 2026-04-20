@@ -2813,6 +2813,187 @@ To cancel, please reply with "cancel".`;
       });
     }
 
+    // Check for group discovery patterns
+    const isGroupDiscovery =
+      lowerText.includes('what groups can i manage') ||
+      lowerText.includes('what groups can i administrate') ||
+      lowerText.includes('list manageable groups') ||
+      lowerText.includes('list my groups') ||
+      lowerText.includes('show manageable groups') ||
+      lowerText.includes('show my groups') ||
+      lowerText.includes('show groups i can manage');
+
+    if (isGroupDiscovery) {
+      console.log('[Chat] Pre-router detected group discovery request');
+
+      const toolResult = await executeTool(
+        'list_manageable_groups',
+        {},
+        mcpAccessToken!,
+        config.mcp.endpoints.toolsCall
+      );
+
+      return NextResponse.json({
+        message: toolResult,
+        toolCalls: 1,
+      });
+    }
+
+    // Check for list group members patterns
+    const isListGroupMembers =
+      (lowerText.includes('list') || lowerText.includes('show')) &&
+      (lowerText.includes('members') || lowerText.includes('users')) &&
+      (lowerText.includes('group') || lowerText.includes('in group'));
+
+    if (isListGroupMembers) {
+      console.log('[Chat] Pre-router detected list group members request');
+
+      // Extract group name or ID
+      const groupMatch = userText.match(/group\s+([A-Za-z0-9\-_]+)|in\s+([A-Za-z0-9\-_]+)/i);
+      const groupIdentifier = groupMatch?.[1] || groupMatch?.[2];
+
+      if (!groupIdentifier) {
+        return NextResponse.json({
+          message: 'Please specify the group name or ID. For example: "list members of group Partners" or "show users in Salesforce group"',
+        });
+      }
+
+      // Check if it's a group ID (starts with 00g)
+      let groupId = groupIdentifier.startsWith('00g') ? groupIdentifier : null;
+
+      if (!groupId) {
+        // Need to resolve group name to ID
+        console.log('[Chat] Resolving group name:', groupIdentifier);
+
+        const groupsResult = await executeTool(
+          'list_manageable_groups',
+          {},
+          mcpAccessToken!,
+          config.mcp.endpoints.toolsCall
+        );
+
+        // Parse and find matching group
+        try {
+          const groupsData = JSON.parse(groupsResult);
+          const groups = groupsData.groups || [];
+          const matchingGroup = groups.find((g: any) =>
+            g.name.toLowerCase() === groupIdentifier.toLowerCase() ||
+            g.name.toLowerCase().includes(groupIdentifier.toLowerCase())
+          );
+
+          if (matchingGroup) {
+            groupId = matchingGroup.id;
+            console.log('[Chat] Resolved group:', matchingGroup.name, '→', groupId);
+          } else {
+            return NextResponse.json({
+              message: `Group "${groupIdentifier}" not found in your manageable groups. Available groups:\n\n${groups.map((g: any) => `- ${g.name} (${g.id})`).join('\n')}`,
+            });
+          }
+        } catch (parseError) {
+          console.error('[Chat] Failed to parse groups result:', parseError);
+          return NextResponse.json({
+            message: 'Failed to resolve group name. Please try using the group ID instead.',
+          });
+        }
+      }
+
+      const toolResult = await executeTool(
+        'list_group_members',
+        { groupId },
+        mcpAccessToken!,
+        config.mcp.endpoints.toolsCall
+      );
+
+      return NextResponse.json({
+        message: toolResult,
+        toolCalls: 1,
+      });
+    }
+
+    // Check for add/remove user to/from group patterns
+    const isGroupMembershipManagement =
+      (lowerText.includes('add') || lowerText.includes('remove')) &&
+      (lowerText.includes('user') || lowerText.includes('member')) &&
+      (lowerText.includes('group') || lowerText.includes('to group') || lowerText.includes('from group'));
+
+    if (isGroupMembershipManagement) {
+      console.log('[Chat] Pre-router detected group membership management request');
+
+      const action = lowerText.includes('add') ? 'add' : 'remove';
+
+      // Extract user email or ID
+      const emailMatch = userText.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/);
+      const userIdMatch = userText.match(/user\s+(00u[A-Za-z0-9]+)/i);
+      const userId = emailMatch?.[1] || userIdMatch?.[1];
+
+      if (!userId) {
+        return NextResponse.json({
+          message: `Please specify the user email or ID. For example: "${action} user john@example.com ${action === 'add' ? 'to' : 'from'} group Partners"`,
+        });
+      }
+
+      // Extract group name or ID
+      const groupMatch = userText.match(/(?:to|from)\s+group\s+([A-Za-z0-9\-_]+)|(?:to|from)\s+([A-Za-z0-9\-_]+)\s+group/i);
+      const groupIdentifier = groupMatch?.[1] || groupMatch?.[2];
+
+      if (!groupIdentifier) {
+        return NextResponse.json({
+          message: `Please specify the group name or ID. For example: "${action} user ${userId} ${action === 'add' ? 'to' : 'from'} group Partners"`,
+        });
+      }
+
+      // Check if it's a group ID (starts with 00g)
+      let groupId = groupIdentifier.startsWith('00g') ? groupIdentifier : null;
+
+      if (!groupId) {
+        // Need to resolve group name to ID
+        console.log('[Chat] Resolving group name:', groupIdentifier);
+
+        const groupsResult = await executeTool(
+          'list_manageable_groups',
+          {},
+          mcpAccessToken!,
+          config.mcp.endpoints.toolsCall
+        );
+
+        // Parse and find matching group
+        try {
+          const groupsData = JSON.parse(groupsResult);
+          const groups = groupsData.groups || [];
+          const matchingGroup = groups.find((g: any) =>
+            g.name.toLowerCase() === groupIdentifier.toLowerCase() ||
+            g.name.toLowerCase().includes(groupIdentifier.toLowerCase())
+          );
+
+          if (matchingGroup) {
+            groupId = matchingGroup.id;
+            console.log('[Chat] Resolved group:', matchingGroup.name, '→', groupId);
+          } else {
+            return NextResponse.json({
+              message: `Group "${groupIdentifier}" not found in your manageable groups. Available groups:\n\n${groups.map((g: any) => `- ${g.name} (${g.id})`).join('\n')}`,
+            });
+          }
+        } catch (parseError) {
+          console.error('[Chat] Failed to parse groups result:', parseError);
+          return NextResponse.json({
+            message: 'Failed to resolve group name. Please try using the group ID instead.',
+          });
+        }
+      }
+
+      const toolResult = await executeTool(
+        'manage_group_membership',
+        { groupId, userId, action },
+        mcpAccessToken!,
+        config.mcp.endpoints.toolsCall
+      );
+
+      return NextResponse.json({
+        message: toolResult,
+        toolCalls: 1,
+      });
+    }
+
     // Check for activity report or access review patterns
     const isActivityReport =
       lowerText.includes('activity report') || lowerText.includes('show activity');
