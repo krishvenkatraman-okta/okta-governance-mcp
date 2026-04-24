@@ -48,7 +48,8 @@ export function loadConfig(): AppConfig {
     mrs: mrsConfig(),
     http: {
       enabled: process.env.MCP_HTTP_ENABLED !== 'false', // Enabled by default
-      port: parseInt(process.env.MCP_HTTP_PORT || '3000', 10),
+      // Use Render's PORT if available, otherwise MCP_HTTP_PORT, otherwise 3000
+      port: parseInt(process.env.PORT || process.env.MCP_HTTP_PORT || '3000', 10),
       baseUrl: process.env.MCP_HTTP_BASE_URL || 'http://localhost:3000',
     },
     resource: {
