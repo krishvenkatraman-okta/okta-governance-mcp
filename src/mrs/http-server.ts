@@ -103,13 +103,18 @@ app.get('/health', (_req, res) => {
  */
 app.get('/.well-known/oauth-authorization-server', (_req, res) => {
   try {
+    console.log('[MRS-HTTP] Generating OAuth discovery metadata...');
     const metadata = getOAuthDiscoveryMetadata();
+    console.log('[MRS-HTTP] OAuth discovery metadata generated successfully');
     res.json(metadata);
   } catch (error) {
-    console.error('[MRS-HTTP] Error generating OAuth discovery metadata:', error);
+    console.error('[MRS-HTTP] Error generating OAuth discovery metadata:');
+    console.error('[MRS-HTTP] Error name:', error instanceof Error ? error.name : typeof error);
+    console.error('[MRS-HTTP] Error message:', error instanceof Error ? error.message : String(error));
+    console.error('[MRS-HTTP] Error stack:', error instanceof Error ? error.stack : 'N/A');
     res.status(500).json({
       error: 'internal_server_error',
-      error_description: 'Failed to generate OAuth discovery metadata',
+      error_description: error instanceof Error ? error.message : 'Failed to generate OAuth discovery metadata',
     });
   }
 });
