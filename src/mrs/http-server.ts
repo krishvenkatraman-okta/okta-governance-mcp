@@ -15,9 +15,9 @@ import express from 'express';
 import { config } from '../config/index.js';
 import { getAvailableTools } from './tool-registry.js';
 import { executeTool } from './tool-executor.js';
-import { validateAccessToken } from '../auth/access-token-validator.js';
-import { resolveAuthorizationContextForSubject } from '../policy/authorization-context.js';
+import { authenticateRequestWithRouter } from '../auth/token-router.js';
 import { getServerMetadataResponse } from './server-metadata.js';
+import { getOAuthDiscoveryMetadata } from '../oauth/discovery.js';
 import type { AuthorizationContext } from '../types/index.js';
 
 const app = express();
@@ -36,7 +36,8 @@ app.use((req, res, next) => {
 });
 
 /**
- * Extract and validate Okta access token from Authorization header
+ * Extract and validate access token from Authorization header
+ * Uses token router to support both frontend and OAuth tokens
  */
 async function authenticateRequest(req: express.Request): Promise<AuthorizationContext | null> {
   const authHeader = req.headers.authorization;
@@ -48,29 +49,19 @@ async function authenticateRequest(req: express.Request): Promise<AuthorizationC
 
   const token = authHeader.substring(7); // Remove "Bearer " prefix
 
-  // Validate Okta access token
-  const validation = await validateAccessToken(token);
-
-  if (!validation.valid) {
-    console.error('[MRS-HTTP] Okta access token validation failed:', validation.error);
-    return null;
-  }
-
-  if (!validation.payload?.sub) {
-    console.error('[MRS-HTTP] No subject in token');
-    return null;
-  }
-
-  const { sub: subject } = validation.payload;
-
-  console.log('[MRS-HTTP] Okta access token validated for subject:', subject);
-
-  // Resolve authorization context
+  // Use token router for automatic token type detection and validation
   try {
-    const context = await resolveAuthorizationContextForSubject(subject, validation.payload);
+    const context = await authenticateRequestWithRouter(token);
+
+    if (!context) {
+      console.error('[MRS-HTTP] Token validation or context resolution failed');
+      return null;
+    }
+
+    console.log('[MRS-HTTP] Authentication successful for subject:', context.subject);
     return context;
   } catch (error) {
-    console.error('[MRS-HTTP] Failed to resolve authorization context:', error);
+    console.error('[MRS-HTTP] Authentication error:', error);
     return null;
   }
 }
@@ -103,6 +94,24 @@ app.get('/health', (_req, res) => {
     version: config.mrs.serverVersion,
     timestamp: new Date().toISOString(),
   });
+});
+
+/**
+ * GET /.well-known/oauth-authorization-server
+ * OAuth 2.0 Authorization Server Metadata (RFC 8414)
+ * For VS Code, Claude Desktop, and other OAuth clients
+ */
+app.get('/.well-known/oauth-authorization-server', (_req, res) => {
+  try {
+    const metadata = getOAuthDiscoveryMetadata();
+    res.json(metadata);
+  } catch (error) {
+    console.error('[MRS-HTTP] Error generating OAuth discovery metadata:', error);
+    res.status(500).json({
+      error: 'internal_server_error',
+      error_description: 'Failed to generate OAuth discovery metadata',
+    });
+  }
 });
 
 /**
