@@ -18,6 +18,15 @@ export interface AppConfig {
   okta: ReturnType<typeof oktaConfig>;
   mas: ReturnType<typeof masConfig>;
   mrs: ReturnType<typeof mrsConfig>;
+  http: {
+    enabled: boolean;
+    port: number;
+    baseUrl: string;
+  };
+  resource: {
+    identifier: string;
+    documentation?: string;
+  };
 }
 
 /**
@@ -37,6 +46,15 @@ export function loadConfig(): AppConfig {
     okta: oktaConfig(),
     mas: masConfig(),
     mrs: mrsConfig(),
+    http: {
+      enabled: process.env.MCP_HTTP_ENABLED !== 'false', // Enabled by default
+      port: parseInt(process.env.MCP_HTTP_PORT || '3000', 10),
+      baseUrl: process.env.MCP_HTTP_BASE_URL || 'http://localhost:3000',
+    },
+    resource: {
+      identifier: process.env.MCP_RESOURCE_IDENTIFIER || 'https://governance.okta.com/mcp',
+      documentation: process.env.MCP_RESOURCE_DOCUMENTATION,
+    },
   };
 }
 

@@ -31,8 +31,7 @@ import {
   isRegistryLoaded,
   getRegistryStatus,
 } from '../catalog/endpoint-registry.js';
-import { validateAccessToken } from '../auth/access-token-validator.js';
-import { resolveAuthorizationContextForSubject } from '../policy/authorization-context.js';
+import { authenticateRequestWithRouter } from '../auth/token-router.js';
 import type { AuthorizationContext } from '../types/index.js';
 
 /**
@@ -68,61 +67,50 @@ function extractAccessToken(request: any): string | null {
  * Authenticate and resolve authorization context
  *
  * Validates the Okta access token and resolves the user's authorization context.
+ * Uses token router to support both authentication paths:
+ * - Path A: Frontend flow (CUSTOM auth server tokens)
+ * - Path B: OAuth flow (ORG/DEFAULT auth server tokens)
+ *
  * Fails closed - returns null if authentication fails.
  *
  * @param request - MCP request object
  * @returns Authorization context or null if auth fails
  */
 async function authenticateRequest(request: any): Promise<AuthorizationContext | null> {
-  // Step 1: Extract Okta access token
+  // Step 1: Extract access token
   const token = extractAccessToken(request);
 
   if (!token) {
-    console.warn('[MRS] No Okta access token provided in request');
+    console.warn('[MRS] No access token provided in request');
     return null;
   }
 
-  // Step 2: Validate Okta access token
-  const validation = await validateAccessToken(token);
-
-  if (!validation.valid) {
-    console.error('[MRS] Okta access token validation failed:', {
-      error: validation.error,
-      errors: validation.errors,
-    });
-    return null;
-  }
-
-  if (!validation.payload) {
-    console.error('[MRS] Okta access token validation succeeded but no payload');
-    return null;
-  }
-
-  const { sub: subject } = validation.payload;
-
-  console.log('[MRS] Okta access token validated:', {
-    subject,
-    issuer: validation.claims?.issuer,
-    expiresAt: validation.claims?.expiresAt,
-    scope: validation.claims?.scope,
-  });
-
-  // Step 3: Resolve authorization context
+  // Step 2: Route to appropriate validator and resolve context
+  // The router automatically detects token type (CUSTOM vs OAuth) and:
+  // - Validates the token using the correct validator
+  // - Extracts the subject (user ID)
+  // - Resolves authorization context from Okta
   try {
-    const context = await resolveAuthorizationContextForSubject(subject, validation.payload);
+    const context = await authenticateRequestWithRouter(token);
 
-    console.log('[MRS] Authorization context resolved:', {
-      subject,
+    if (!context) {
+      console.error('[MRS] Authentication failed: Token validation or context resolution failed');
+      return null;
+    }
+
+    console.log('[MRS] Authentication successful:', {
+      subject: context.subject,
       roles: Object.entries(context.roles)
         .filter(([_, value]) => value)
         .map(([key]) => key),
       capabilities: context.capabilities.length,
       targetApps: context.targets.apps.length,
+      targetGroups: context.targets.groups.length,
     });
 
     return context;
   } catch (error) {
-    console.error('[MRS] Failed to resolve authorization context:', error);
+    console.error('[MRS] Authentication error:', error);
     return null;
   }
 }

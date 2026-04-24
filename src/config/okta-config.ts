@@ -87,5 +87,20 @@ export function oktaConfig() {
       // JWKS URI for custom authorization server
       jwksUri: process.env.ACCESS_TOKEN_JWKS_URI || process.env.ID_JAG_JWKS_URI || `${orgUrl}/oauth2/default/v1/keys`,
     },
+
+    // OAuth 2.0 configuration (for direct OAuth flow - VS Code/Claude Desktop)
+    // Uses ORG or DEFAULT authorization server for direct user authentication
+    oauth: {
+      // OAuth issuer (ORG or DEFAULT auth server)
+      issuer: process.env.OKTA_OAUTH_ISSUER || `${orgUrl}/oauth2/default`,
+      // JWKS URI for OAuth issuer
+      jwksUri: process.env.OKTA_OAUTH_JWKS_URI || `${orgUrl}/oauth2/default/v1/keys`,
+      // Expected audience for OAuth tokens
+      audience: process.env.OKTA_OAUTH_AUDIENCE || 'api://default',
+      // Authorization endpoint (optional, auto-generated from issuer)
+      authorizationEndpoint: process.env.OKTA_OAUTH_AUTHORIZATION_ENDPOINT,
+      // Token endpoint (optional, auto-generated from issuer)
+      tokenEndpoint: process.env.OKTA_OAUTH_TOKEN_ENDPOINT,
+    },
   };
 }

@@ -7,6 +7,7 @@
 import { config } from './config/index.js';
 import { startMas } from './mas/index.js';
 import { startMrs } from './mrs/index.js';
+import { startHttpServer } from './http/server.js';
 
 async function main() {
   console.log('🚀 Okta Governance MCP Server');
@@ -15,6 +16,12 @@ async function main() {
   console.log('');
 
   try {
+    // Start HTTP server for OAuth discovery (runs alongside MCP server)
+    if (config.serverMode === 'mrs') {
+      await startHttpServer();
+    }
+
+    // Start MCP server (MAS or MRS)
     if (config.serverMode === 'mas') {
       startMas();
     } else if (config.serverMode === 'mrs') {
