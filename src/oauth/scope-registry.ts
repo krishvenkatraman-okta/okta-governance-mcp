@@ -19,13 +19,49 @@ import type { ToolRequirement } from '../types/index.js';
 export function getAllToolScopes(): string[] {
   const scopeSet = new Set<string>();
 
-  const allRequirements = getAllToolRequirements();
+  try {
+    const allRequirements = getAllToolRequirements();
 
-  Object.values(allRequirements).forEach((req: ToolRequirement) => {
-    req.requiredScopes.forEach((scope: string) => scopeSet.add(scope));
-  });
+    if (!allRequirements) {
+      console.warn('[ScopeRegistry] Tool requirements not available, using default scopes');
+      return getDefaultScopes();
+    }
 
-  return Array.from(scopeSet).sort();
+    Object.values(allRequirements).forEach((req: ToolRequirement) => {
+      if (req?.requiredScopes && Array.isArray(req.requiredScopes)) {
+        req.requiredScopes.forEach((scope: string) => scopeSet.add(scope));
+      }
+    });
+
+    // If no scopes found, return defaults
+    if (scopeSet.size === 0) {
+      console.warn('[ScopeRegistry] No scopes found in tool requirements, using defaults');
+      return getDefaultScopes();
+    }
+
+    return Array.from(scopeSet).sort();
+  } catch (error) {
+    console.error('[ScopeRegistry] Error extracting scopes from tool requirements:', error);
+    return getDefaultScopes();
+  }
+}
+
+/**
+ * Default scopes when tool requirements are not available
+ */
+function getDefaultScopes(): string[] {
+  return [
+    'okta.apps.read',
+    'okta.apps.manage',
+    'okta.groups.read',
+    'okta.groups.manage',
+    'okta.users.read',
+    'okta.governance.accessCertifications.read',
+    'okta.governance.accessCertifications.manage',
+    'okta.accessRequests.request.read',
+    'okta.logs.read',
+    'okta.roles.read',
+  ].sort();
 }
 
 /**
