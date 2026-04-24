@@ -41,14 +41,23 @@ export interface OAuthDiscoveryMetadata {
  * - What scopes are needed for the MCP server
  */
 export function getOAuthDiscoveryMetadata(): OAuthDiscoveryMetadata {
+  // Validate config exists
+  if (!config.okta?.oauth) {
+    throw new Error('OAuth configuration not found. Please set OKTA_OAUTH_ISSUER environment variable.');
+  }
+
   const issuer = config.okta.oauth.issuer;
+
+  if (!issuer) {
+    throw new Error('OAuth issuer not configured. Please set OKTA_OAUTH_ISSUER environment variable.');
+  }
 
   return {
     // Standard OAuth 2.0 Authorization Server Metadata (RFC 8414)
     issuer,
-    authorization_endpoint: config.okta.oauth.authorizationEndpoint || `${issuer}/v1/authorize`,
-    token_endpoint: config.okta.oauth.tokenEndpoint || `${issuer}/v1/token`,
-    jwks_uri: config.okta.oauth.jwksUri,
+    authorization_endpoint: config.okta.oauth.authorizationEndpoint || `${issuer}/oauth2/v1/authorize`,
+    token_endpoint: config.okta.oauth.tokenEndpoint || `${issuer}/oauth2/v1/token`,
+    jwks_uri: config.okta.oauth.jwksUri || `${issuer}/oauth2/v1/keys`,
     scopes_supported: getAllToolScopes(),
     response_types_supported: ['code', 'token'],
     grant_types_supported: ['authorization_code', 'refresh_token'],
@@ -67,7 +76,7 @@ export function getOAuthDiscoveryMetadata(): OAuthDiscoveryMetadata {
     mcp_server_info: getMcpServerInfo(),
 
     // Optional endpoints (for token management)
-    revocation_endpoint: `${issuer}/v1/revoke`,
-    introspection_endpoint: `${issuer}/v1/introspect`,
+    revocation_endpoint: `${issuer}/oauth2/v1/revoke`,
+    introspection_endpoint: `${issuer}/oauth2/v1/introspect`,
   };
 }

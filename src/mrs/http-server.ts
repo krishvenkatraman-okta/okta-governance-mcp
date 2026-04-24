@@ -257,10 +257,11 @@ export function startMrsHttpServer() {
     console.log('\n✅ Server is running\n');
     console.log('Endpoints:');
     console.log(`  GET  http://${host}:${port}/.well-known/mcp.json`);
+    console.log(`  GET  http://${host}:${port}/.well-known/oauth-authorization-server`);
     console.log(`  GET  http://${host}:${port}/health`);
     console.log(`  POST http://${host}:${port}/mcp/v1/tools/list`);
     console.log(`  POST http://${host}:${port}/mcp/v1/tools/call`);
-    console.log('\n🔐 Authentication: Bearer token (MCP access token from MAS)\n');
+    console.log('\n🔐 Authentication: Bearer token (MCP access token or OAuth token)\n');
   });
 
   // Keep process alive on signals (graceful shutdown)
