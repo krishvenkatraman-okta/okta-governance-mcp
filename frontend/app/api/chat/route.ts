@@ -790,6 +790,21 @@ async function handleAwaitingEntitlementSelection(
   console.log('[AccessRequest] User message:', userMessage);
   console.log('[AccessRequest] Available children IDs:', childEntryIds.length);
 
+  // Check for cancel intent
+  const lowerMessage = userMessage.toLowerCase().trim();
+  if (
+    lowerMessage === 'cancel' ||
+    lowerMessage === 'stop' ||
+    lowerMessage === 'abort' ||
+    lowerMessage === 'nevermind' ||
+    lowerMessage === 'never mind'
+  ) {
+    console.log('[AccessRequest] User canceled workflow');
+    session.pendingAccessRequestWorkflow = undefined;
+    await session.save();
+    return 'Access request canceled.';
+  }
+
   // Fetch full child entries from IDs
   const childEntries = await Promise.all(
     childEntryIds.map((id: string) => getCatalogEntry(userAccessToken, oktaDomain, id))
@@ -799,9 +814,6 @@ async function handleAwaitingEntitlementSelection(
   const validChildEntries = childEntries.filter((e: any) => e !== null);
 
   console.log('[AccessRequest] Fetched', validChildEntries.length, 'valid child entries');
-
-  // Find matching entitlement
-  const lowerMessage = userMessage.toLowerCase().trim();
   const selected = validChildEntries.find(
     (entry: any) =>
       entry.name?.toLowerCase().includes(lowerMessage) ||
@@ -912,6 +924,44 @@ async function handleCollectingFields(
   console.log('[AccessRequest] Collecting field:', field.id);
   console.log('[AccessRequest] Field type:', field.type);
   console.log('[AccessRequest] User input:', userMessage);
+
+  // Check for escape/change intent before parsing field value
+  const lowerMessage = userMessage.toLowerCase().trim();
+
+  // Check for cancel intent
+  if (
+    lowerMessage === 'cancel' ||
+    lowerMessage === 'stop' ||
+    lowerMessage === 'abort' ||
+    lowerMessage === 'nevermind' ||
+    lowerMessage === 'never mind'
+  ) {
+    console.log('[AccessRequest] User canceled workflow');
+    session.pendingAccessRequestWorkflow = undefined;
+    await session.save();
+    return 'Access request canceled.';
+  }
+
+  // Check for change/restart intent (user wants a different bundle/entitlement)
+  const changeIntentPatterns = [
+    /instead\s+of/i,
+    /change\s+to/i,
+    /switch\s+to/i,
+    /actually\s+(i\s+)?want/i,
+    /can\s+(i|you)\s+(request|get|have)\s+.*?\s+(instead|bundle|pro)/i,
+  ];
+
+  const hasChangeIntent = changeIntentPatterns.some((pattern) => pattern.test(userMessage));
+
+  if (hasChangeIntent) {
+    console.log('[AccessRequest] User wants to change selection, restarting workflow');
+    session.pendingAccessRequestWorkflow = undefined;
+    await session.save();
+    return (
+      `I understand you want to change your selection. Let me restart the access request.\n\n` +
+      `Please say: "Request access to [resource name]" to start over with a different selection.`
+    );
+  }
 
   // Parse field value
   let parsedValue: any;
