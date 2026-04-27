@@ -109,9 +109,16 @@ app.get('/health', (_req, res) => {
  */
 app.get('/.well-known/oauth-protected-resource', (_req, res) => {
   try {
-    console.log('[MRS-HTTP] Generating Protected Resource metadata...');
+    console.log('[MRS-HTTP] ✅ Serving OAuth Protected Resource metadata (RFC 9728)');
     const metadata = getProtectedResourceMetadata();
     console.log('[MRS-HTTP] Protected Resource metadata generated successfully');
+    console.log('[MRS-HTTP] Authorization servers:', metadata.authorization_servers);
+
+    // Ensure CORS headers for browser-based clients
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Content-Type');
+
     res.json(metadata);
   } catch (error) {
     console.error('[MRS-HTTP] Error generating Protected Resource metadata:');
@@ -125,51 +132,20 @@ app.get('/.well-known/oauth-protected-resource', (_req, res) => {
 
 /**
  * GET /.well-known/oauth-authorization-server
- * OAuth 2.0 Authorization Server Metadata (RFC 8414)
  *
- * Returns Okta's authorization server metadata for VS Code compatibility.
- * This tells VS Code where to find Okta's OAuth endpoints (authorize, token, etc.)
- *
- * NOTE: Technically we're a Protected Resource, not an Authorization Server,
- * but VS Code seems to expect this metadata at the MCP server URL.
+ * NOT SUPPORTED - We are a Protected Resource, not an Authorization Server.
+ * Clients should use /.well-known/oauth-protected-resource instead.
  */
 app.get('/.well-known/oauth-authorization-server', (_req, res) => {
-  try {
-    console.log('[MRS-HTTP] Serving authorization server metadata (Okta endpoints)');
+  console.warn('[MRS-HTTP] ❌ Rejected request to oauth-authorization-server endpoint');
+  console.warn('[MRS-HTTP] We are a Protected Resource, not an Authorization Server');
+  console.warn('[MRS-HTTP] Clients should use: /.well-known/oauth-protected-resource');
 
-    const oktaIssuer = config.okta?.oauth?.issuer || 'https://fcxdemo.okta.com';
-
-    const metadata = {
-      issuer: oktaIssuer,
-      authorization_endpoint: config.okta?.oauth?.authorizationEndpoint || `${oktaIssuer}/oauth2/v1/authorize`,
-      token_endpoint: config.okta?.oauth?.tokenEndpoint || `${oktaIssuer}/oauth2/v1/token`,
-      jwks_uri: config.okta?.oauth?.jwksUri || `${oktaIssuer}/oauth2/v1/keys`,
-      response_types_supported: ['code'],
-      grant_types_supported: ['authorization_code'],
-      code_challenge_methods_supported: ['S256'],
-      token_endpoint_auth_methods_supported: ['none', 'client_secret_basic', 'client_secret_post'],
-      scopes_supported: [
-        'okta.accessRequests.request.read',
-        'okta.apps.manage',
-        'okta.apps.read',
-        'okta.governance.accessCertifications.manage',
-        'okta.governance.accessCertifications.read',
-        'okta.groups.manage',
-        'okta.groups.read',
-        'okta.logs.read',
-        'okta.roles.read',
-        'okta.users.read',
-      ],
-    };
-
-    res.json(metadata);
-  } catch (error) {
-    console.error('[MRS-HTTP] Error generating authorization server metadata:', error);
-    res.status(500).json({
-      error: 'internal_server_error',
-      error_description: 'Failed to generate metadata',
-    });
-  }
+  res.status(404).json({
+    error: 'not_found',
+    error_description: 'This server is an OAuth 2.0 Protected Resource, not an Authorization Server. Use /.well-known/oauth-protected-resource for discovery.',
+    correct_endpoint: `${config.http?.baseUrl || 'https://okta-governance-mcp.onrender.com'}/.well-known/oauth-protected-resource`,
+  });
 });
 
 /**
@@ -199,11 +175,13 @@ app.post('/mcp', async (req, res) => {
 
       const protectedResourceUrl = `${config.http?.baseUrl || 'https://okta-governance-mcp.onrender.com'}/.well-known/oauth-protected-resource`;
 
+      // Return 401 with correct WWW-Authenticate format per RFC 9728
       res.status(401)
-        .header('WWW-Authenticate', `Bearer realm="MCP", resource="${protectedResourceUrl}"`)
+        .header('WWW-Authenticate', `Bearer resource_metadata="${protectedResourceUrl}"`)
+        .header('Access-Control-Expose-Headers', 'WWW-Authenticate')
         .json({
           error: 'unauthorized',
-          message: 'Authentication required. See WWW-Authenticate header for OAuth details.',
+          message: 'Authentication required. See WWW-Authenticate header for resource metadata.',
         });
       return;
     }
@@ -223,7 +201,8 @@ app.post('/mcp', async (req, res) => {
       const protectedResourceUrl = `${config.http?.baseUrl || 'https://okta-governance-mcp.onrender.com'}/.well-known/oauth-protected-resource`;
 
       res.status(401)
-        .header('WWW-Authenticate', `Bearer realm="MCP", resource="${protectedResourceUrl}", error="invalid_token"`)
+        .header('WWW-Authenticate', `Bearer resource_metadata="${protectedResourceUrl}", error="invalid_token"`)
+        .header('Access-Control-Expose-Headers', 'WWW-Authenticate')
         .json({
           error: 'invalid_token',
           message: 'Invalid or expired access token',
