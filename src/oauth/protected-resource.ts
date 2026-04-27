@@ -57,17 +57,19 @@ export function getProtectedResourceMetadata(): ProtectedResourceMetadata {
     throw new Error('OAuth configuration not found');
   }
 
-  // Your MCP server's URL (the protected resource)
-  const resourceIdentifier = config.resource?.identifier || config.http?.baseUrl || 'https://governance.okta.com/mcp';
+  // Your MCP server's actual URL (the protected resource)
+  // This should be the real endpoint where clients send authenticated requests
+  const baseUrl = config.http?.baseUrl || 'https://okta-governance-mcp.onrender.com';
+  const resourceIdentifier = `${baseUrl}/mcp`;
 
   // Where OAuth clients should get access tokens (Okta ORG auth server)
   const authorizationServers = [config.okta.oauth.issuer];
 
   // Documentation URL
-  const resourceDocumentation = config.resource?.documentation || `${config.http?.baseUrl || ''}/docs`;
+  const resourceDocumentation = config.resource?.documentation || `${baseUrl}/docs`;
 
   return {
-    // Your MCP server's URL
+    // Your MCP server's actual URL
     resource: resourceIdentifier,
 
     // Where to get access tokens (Okta ORG auth server)
