@@ -24,12 +24,12 @@ import { listManageableGroupsTool } from './governance/list-manageable-groups.js
 import { listGroupMembersTool } from './governance/list-group-members.js';
 import { manageGroupMembershipTool } from './governance/manage-group-membership.js';
 import { manageGroupCampaignsTool } from './governance/manage-group-campaigns.js';
+import { createDelegatedAccessRequestTool } from './governance/delegated-access-request.js';
 
 // Stubbed governance tools (authorization checks only)
 import {
   manageAppEntitlementsTool,
   manageAppBundlesTool,
-  createDelegatedAccessRequestTool,
   manageAppWorkflowsTool,
 } from './governance/stubs.js';
 
