@@ -98,16 +98,9 @@ app.get('/health', (_req, res) => {
 });
 
 /**
- * GET /.well-known/oauth-protected-resource
- * OAuth 2.0 Protected Resource Metadata (RFC 9728)
- *
- * This endpoint tells OAuth clients:
- * - We're a protected resource (not an authorization server)
- * - Get tokens from Okta (https://fcxdemo.okta.com)
- * - We validate those tokens to authorize access
- * - We require specific Okta admin scopes
+ * Shared handler for OAuth Protected Resource metadata
  */
-app.get('/.well-known/oauth-protected-resource', (_req, res) => {
+const protectedResourceMetadataHandler = (_req: express.Request, res: express.Response) => {
   try {
     console.log('[MRS-HTTP] ✅ Serving OAuth Protected Resource metadata (RFC 9728)');
     const metadata = getProtectedResourceMetadata();
@@ -128,6 +121,32 @@ app.get('/.well-known/oauth-protected-resource', (_req, res) => {
       error_description: error instanceof Error ? error.message : 'Failed to generate metadata',
     });
   }
+};
+
+/**
+ * GET /.well-known/oauth-protected-resource
+ * OAuth 2.0 Protected Resource Metadata (RFC 9728)
+ *
+ * This endpoint tells OAuth clients:
+ * - We're a protected resource (not an authorization server)
+ * - Get tokens from Okta (https://fcxdemo.okta.com)
+ * - We validate those tokens to authorize access
+ * - We require specific Okta admin scopes
+ */
+app.get('/.well-known/oauth-protected-resource', protectedResourceMetadataHandler);
+
+/**
+ * GET /.well-known/oauth-protected-resource/mcp
+ * Alias endpoint for resource-specific metadata
+ *
+ * VS Code may append the resource path (/mcp) to the well-known URL
+ * when discovering protected resource metadata. This endpoint ensures
+ * compatibility with that behavior.
+ */
+app.get('/.well-known/oauth-protected-resource/mcp', (req, res) => {
+  console.log('[MRS-HTTP] ⚠️  VS Code accessed resource-specific metadata URL');
+  console.log('[MRS-HTTP] Serving same metadata as /.well-known/oauth-protected-resource');
+  protectedResourceMetadataHandler(req, res);
 });
 
 /**
@@ -468,6 +487,7 @@ export function startMrsHttpServer() {
     console.log('');
     console.log('  OAuth Discovery:');
     console.log(`    GET  http://${host}:${port}/.well-known/oauth-protected-resource`);
+    console.log(`    GET  http://${host}:${port}/.well-known/oauth-protected-resource/mcp`);
     console.log(`    GET  http://${host}:${port}/.well-known/mcp.json`);
     console.log('');
     console.log('  REST API (Frontend):');
