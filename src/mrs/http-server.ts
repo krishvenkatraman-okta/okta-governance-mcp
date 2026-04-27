@@ -124,21 +124,52 @@ app.get('/.well-known/oauth-protected-resource', (_req, res) => {
 });
 
 /**
- * GET /.well-known/oauth-authorization-server (DEPRECATED)
+ * GET /.well-known/oauth-authorization-server
  * OAuth 2.0 Authorization Server Metadata (RFC 8414)
  *
- * DEPRECATED: This endpoint is incorrect for our use case.
- * We're a Protected Resource, not an Authorization Server.
+ * Returns Okta's authorization server metadata for VS Code compatibility.
+ * This tells VS Code where to find Okta's OAuth endpoints (authorize, token, etc.)
  *
- * Legacy endpoint - redirects to correct Protected Resource endpoint
- * for backward compatibility during transition.
+ * NOTE: Technically we're a Protected Resource, not an Authorization Server,
+ * but VS Code seems to expect this metadata at the MCP server URL.
  */
 app.get('/.well-known/oauth-authorization-server', (_req, res) => {
-  console.warn('[MRS-HTTP] ⚠️  DEPRECATED: oauth-authorization-server endpoint accessed');
-  console.warn('[MRS-HTTP] Clients should use: /.well-known/oauth-protected-resource');
+  try {
+    console.log('[MRS-HTTP] Serving authorization server metadata (Okta endpoints)');
 
-  // Return 301 redirect to correct endpoint
-  res.redirect(301, '/.well-known/oauth-protected-resource');
+    const oktaIssuer = config.okta?.oauth?.issuer || 'https://fcxdemo.okta.com';
+
+    const metadata = {
+      issuer: oktaIssuer,
+      authorization_endpoint: config.okta?.oauth?.authorizationEndpoint || `${oktaIssuer}/oauth2/v1/authorize`,
+      token_endpoint: config.okta?.oauth?.tokenEndpoint || `${oktaIssuer}/oauth2/v1/token`,
+      jwks_uri: config.okta?.oauth?.jwksUri || `${oktaIssuer}/oauth2/v1/keys`,
+      response_types_supported: ['code'],
+      grant_types_supported: ['authorization_code'],
+      code_challenge_methods_supported: ['S256'],
+      token_endpoint_auth_methods_supported: ['none', 'client_secret_basic', 'client_secret_post'],
+      scopes_supported: [
+        'okta.accessRequests.request.read',
+        'okta.apps.manage',
+        'okta.apps.read',
+        'okta.governance.accessCertifications.manage',
+        'okta.governance.accessCertifications.read',
+        'okta.groups.manage',
+        'okta.groups.read',
+        'okta.logs.read',
+        'okta.roles.read',
+        'okta.users.read',
+      ],
+    };
+
+    res.json(metadata);
+  } catch (error) {
+    console.error('[MRS-HTTP] Error generating authorization server metadata:', error);
+    res.status(500).json({
+      error: 'internal_server_error',
+      error_description: 'Failed to generate metadata',
+    });
+  }
 });
 
 /**
