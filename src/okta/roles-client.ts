@@ -10,23 +10,99 @@ import { config } from '../config/index.js';
 import type { OktaRole, OktaApp, OktaGroup } from '../types/index.js';
 
 /**
+ * Look up Okta user ID by login/email
+ *
+ * When OAuth tokens contain email in sub claim, we need to convert
+ * to Okta user ID before calling role APIs.
+ *
+ * @param loginOrEmail - User's login or email address
+ * @returns Okta user ID or null if not found
+ */
+async function getUserIdByLogin(loginOrEmail: string): Promise<string | null> {
+  console.debug('[RolesClient] Looking up user ID for login:', loginOrEmail);
+
+  try {
+    // Get service access token with required scopes
+    const accessToken = await getServiceAccessToken(['okta.users.read']);
+
+    // Search for user by login
+    const url = `${config.okta.apiV1}/users/${encodeURIComponent(loginOrEmail)}`;
+
+    const response = await fetch(url, {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Accept': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      if (response.status === 404) {
+        console.warn('[RolesClient] User not found by login:', loginOrEmail);
+        return null;
+      }
+
+      const errorText = await response.text();
+      console.error('[RolesClient] Failed to look up user:', {
+        login: loginOrEmail,
+        status: response.status,
+        error: errorText,
+      });
+
+      return null;
+    }
+
+    const user = (await response.json()) as { id: string; profile: { login: string; email: string } };
+
+    console.log('[RolesClient] User ID resolved:', {
+      login: loginOrEmail,
+      userId: user.id,
+      email: user.profile.email,
+    });
+
+    return user.id;
+  } catch (error) {
+    console.error('[RolesClient] Error looking up user:', {
+      login: loginOrEmail,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  }
+}
+
+/**
  * List roles assigned to a user
  *
  * Fetches all admin role assignments for a user.
  *
- * @param userId - Okta user ID
+ * @param userId - Okta user ID or email (will be converted to ID if needed)
  * @returns Array of role assignments
  *
  * @throws Error if API call fails
  */
 async function listUserRoles(userId: string): Promise<OktaRole[]> {
-  console.debug('[RolesClient] Fetching roles for user:', userId);
+  // Check if userId looks like an email (contains @)
+  // If so, look up the actual Okta user ID first
+  let actualUserId = userId;
+  if (userId.includes('@')) {
+    console.log('[RolesClient] Subject appears to be email, looking up Okta user ID...');
+    const resolvedId = await getUserIdByLogin(userId);
+    if (!resolvedId) {
+      console.warn('[RolesClient] Could not resolve email to Okta user ID, returning empty roles');
+      return [];
+    }
+    actualUserId = resolvedId;
+    console.log('[RolesClient] Resolved email to Okta user ID:', {
+      email: userId,
+      oktaUserId: actualUserId,
+    });
+  }
+  console.debug('[RolesClient] Fetching roles for user:', actualUserId);
 
   try {
     // Get service access token with required scopes
     const accessToken = await getServiceAccessToken(['okta.users.read', 'okta.roles.read']);
 
-    const url = `${config.okta.apiV1}/users/${userId}/roles`;
+    const url = `${config.okta.apiV1}/users/${actualUserId}/roles`;
 
     const response = await fetch(url, {
       headers: {
