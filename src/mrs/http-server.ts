@@ -18,6 +18,7 @@ import { executeTool } from './tool-executor.js';
 import { authenticateRequestWithRouter } from '../auth/token-router.js';
 import { getServerMetadataResponse } from './server-metadata.js';
 import { getProtectedResourceMetadata } from '../oauth/protected-resource.js';
+import { handleMcpJsonRpc } from './mcp-jsonrpc-handler.js';
 import type { AuthorizationContext } from '../types/index.js';
 
 const app = express();
@@ -138,6 +139,82 @@ app.get('/.well-known/oauth-authorization-server', (_req, res) => {
 
   // Return 301 redirect to correct endpoint
   res.redirect(301, '/.well-known/oauth-protected-resource');
+});
+
+/**
+ * POST /mcp
+ * MCP Streamable HTTP Transport - JSON-RPC endpoint for VS Code
+ *
+ * This implements the MCP protocol over HTTP using JSON-RPC 2.0.
+ * When called without authentication, returns 401 with WWW-Authenticate
+ * header pointing to OAuth Protected Resource metadata, triggering
+ * VS Code's OAuth Authorization Code + PKCE flow.
+ *
+ * @see https://modelcontextprotocol.io/specification/2025-06-18/basic/transports#http
+ * @see https://github.com/microsoft/vscode/issues/247759
+ */
+app.post('/mcp', async (req, res) => {
+  try {
+    // Check for Authorization header
+    const authHeader = req.headers.authorization;
+
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      // No token provided - return 401 with WWW-Authenticate header
+      // This triggers VS Code to start OAuth flow
+      console.log('[MCP-HTTP] No authorization header, sending 401 with WWW-Authenticate');
+
+      const protectedResourceUrl = `${config.http?.baseUrl || 'https://okta-governance-mcp.onrender.com'}/.well-known/oauth-protected-resource`;
+
+      res.status(401)
+        .header('WWW-Authenticate', `Bearer realm="MCP", resource="${protectedResourceUrl}"`)
+        .json({
+          error: 'unauthorized',
+          message: 'Authentication required. See WWW-Authenticate header for OAuth details.',
+        });
+      return;
+    }
+
+    // Authenticate request
+    const context = await authenticateRequest(req);
+
+    if (!context) {
+      // Invalid token - return 401 with WWW-Authenticate header
+      console.log('[MCP-HTTP] Invalid token, sending 401 with WWW-Authenticate');
+
+      const protectedResourceUrl = `${config.http?.baseUrl || 'https://okta-governance-mcp.onrender.com'}/.well-known/oauth-protected-resource`;
+
+      res.status(401)
+        .header('WWW-Authenticate', `Bearer realm="MCP", resource="${protectedResourceUrl}", error="invalid_token"`)
+        .json({
+          error: 'invalid_token',
+          message: 'Invalid or expired access token',
+        });
+      return;
+    }
+
+    // Valid token - handle JSON-RPC request
+    await handleMcpJsonRpc(req, res, context);
+  } catch (error) {
+    console.error('[MCP-HTTP] Error handling /mcp request:', error);
+    res.status(500).json({
+      error: 'Internal Server Error',
+      message: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+/**
+ * GET /mcp
+ * Optional: For streaming server messages (not yet implemented)
+ * Currently returns information about the MCP endpoint
+ */
+app.get('/mcp', (_req, res) => {
+  res.json({
+    message: 'MCP Streamable HTTP Transport endpoint',
+    methods: ['POST'],
+    description: 'Use POST with JSON-RPC 2.0 requests. Authentication required via OAuth 2.0.',
+    discoveryUrl: `${config.http?.baseUrl || 'https://okta-governance-mcp.onrender.com'}/.well-known/oauth-protected-resource`,
+  });
 });
 
 /**
@@ -282,13 +359,23 @@ export function startMrsHttpServer() {
     console.log('─'.repeat(70));
     console.log('\n✅ Server is running\n');
     console.log('Endpoints:');
-    console.log(`  GET  http://${host}:${port}/.well-known/mcp.json`);
-    console.log(`  GET  http://${host}:${port}/.well-known/oauth-protected-resource`);
-    console.log(`  GET  http://${host}:${port}/health`);
-    console.log(`  POST http://${host}:${port}/mcp/v1/tools/list`);
-    console.log(`  POST http://${host}:${port}/mcp/v1/tools/call`);
+    console.log('  MCP Streamable HTTP Transport (VS Code):');
+    console.log(`    POST http://${host}:${port}/mcp`);
+    console.log(`    GET  http://${host}:${port}/mcp`);
+    console.log('');
+    console.log('  OAuth Discovery:');
+    console.log(`    GET  http://${host}:${port}/.well-known/oauth-protected-resource`);
+    console.log(`    GET  http://${host}:${port}/.well-known/mcp.json`);
+    console.log('');
+    console.log('  REST API (Frontend):');
+    console.log(`    POST http://${host}:${port}/mcp/v1/tools/list`);
+    console.log(`    POST http://${host}:${port}/mcp/v1/tools/call`);
+    console.log('');
+    console.log('  Health:');
+    console.log(`    GET  http://${host}:${port}/health`);
     console.log('\n🔐 Authentication: Bearer token (Okta OAuth token)');
-    console.log('🎫 Token validation: Okta ORG/CUSTOM authorization servers\n');
+    console.log('🎫 Token validation: Okta ORG/CUSTOM authorization servers');
+    console.log('📱 VS Code: POST /mcp triggers OAuth flow via WWW-Authenticate header\n');
   });
 
   // Keep process alive on signals (graceful shutdown)
