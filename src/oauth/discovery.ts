@@ -1,8 +1,13 @@
 /**
  * OAuth 2.0 Authorization Server Metadata (RFC 8414)
  *
- * Provides discovery endpoint for OAuth clients to learn how to authenticate.
- * Includes protected resource metadata (RFC 8705) to describe MCP server capabilities.
+ * @deprecated This module is DEPRECATED and should not be used.
+ * The MCP server is a Protected Resource, not an Authorization Server.
+ * Use getProtectedResourceMetadata() from './protected-resource.js' instead.
+ *
+ * This file is kept for backward compatibility only.
+ * The endpoint /.well-known/oauth-authorization-server now redirects to
+ * /.well-known/oauth-protected-resource.
  */
 
 import { config } from '../config/index.js';
@@ -30,17 +35,19 @@ export interface OAuthDiscoveryMetadata {
 /**
  * Generate OAuth 2.0 Authorization Server Metadata
  *
+ * @deprecated Use getProtectedResourceMetadata() from './protected-resource.js' instead.
+ * This function returns Authorization Server metadata which is incorrect for our use case.
+ * We're a Protected Resource, not an Authorization Server.
+ *
+ * This function is kept for backward compatibility only and should not be used in new code.
+ *
  * Returns discovery metadata compliant with RFC 8414, plus:
  * - Protected resource metadata (RFC 8705)
  * - MCP-specific server information
- *
- * This endpoint tells OAuth clients (VS Code, Claude Desktop) how to:
- * - Start authorization flow
- * - Exchange authorization code for token
- * - Validate tokens
- * - What scopes are needed for the MCP server
  */
 export function getOAuthDiscoveryMetadata(): OAuthDiscoveryMetadata {
+  console.warn('[OAuth Discovery] DEPRECATED: getOAuthDiscoveryMetadata() called');
+  console.warn('[OAuth Discovery] Use getProtectedResourceMetadata() from ./protected-resource.js instead');
   // Validate config exists
   if (!config.okta?.oauth) {
     throw new Error('OAuth configuration not found. Please set OKTA_OAUTH_ISSUER environment variable.');

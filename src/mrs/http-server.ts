@@ -17,7 +17,7 @@ import { getAvailableTools } from './tool-registry.js';
 import { executeTool } from './tool-executor.js';
 import { authenticateRequestWithRouter } from '../auth/token-router.js';
 import { getServerMetadataResponse } from './server-metadata.js';
-import { getOAuthDiscoveryMetadata } from '../oauth/discovery.js';
+import { getProtectedResourceMetadata } from '../oauth/protected-resource.js';
 import type { AuthorizationContext } from '../types/index.js';
 
 const app = express();
@@ -97,26 +97,47 @@ app.get('/health', (_req, res) => {
 });
 
 /**
- * GET /.well-known/oauth-authorization-server
- * OAuth 2.0 Authorization Server Metadata (RFC 8414)
- * For VS Code, Claude Desktop, and other OAuth clients
+ * GET /.well-known/oauth-protected-resource
+ * OAuth 2.0 Protected Resource Metadata (RFC 9728)
+ *
+ * This endpoint tells OAuth clients:
+ * - We're a protected resource (not an authorization server)
+ * - Get tokens from Okta (https://fcxdemo.okta.com)
+ * - We validate those tokens to authorize access
+ * - We require specific Okta admin scopes
  */
-app.get('/.well-known/oauth-authorization-server', (_req, res) => {
+app.get('/.well-known/oauth-protected-resource', (_req, res) => {
   try {
-    console.log('[MRS-HTTP] Generating OAuth discovery metadata...');
-    const metadata = getOAuthDiscoveryMetadata();
-    console.log('[MRS-HTTP] OAuth discovery metadata generated successfully');
+    console.log('[MRS-HTTP] Generating Protected Resource metadata...');
+    const metadata = getProtectedResourceMetadata();
+    console.log('[MRS-HTTP] Protected Resource metadata generated successfully');
     res.json(metadata);
   } catch (error) {
-    console.error('[MRS-HTTP] Error generating OAuth discovery metadata:');
-    console.error('[MRS-HTTP] Error name:', error instanceof Error ? error.name : typeof error);
+    console.error('[MRS-HTTP] Error generating Protected Resource metadata:');
     console.error('[MRS-HTTP] Error message:', error instanceof Error ? error.message : String(error));
-    console.error('[MRS-HTTP] Error stack:', error instanceof Error ? error.stack : 'N/A');
     res.status(500).json({
       error: 'internal_server_error',
-      error_description: error instanceof Error ? error.message : 'Failed to generate OAuth discovery metadata',
+      error_description: error instanceof Error ? error.message : 'Failed to generate metadata',
     });
   }
+});
+
+/**
+ * GET /.well-known/oauth-authorization-server (DEPRECATED)
+ * OAuth 2.0 Authorization Server Metadata (RFC 8414)
+ *
+ * DEPRECATED: This endpoint is incorrect for our use case.
+ * We're a Protected Resource, not an Authorization Server.
+ *
+ * Legacy endpoint - redirects to correct Protected Resource endpoint
+ * for backward compatibility during transition.
+ */
+app.get('/.well-known/oauth-authorization-server', (_req, res) => {
+  console.warn('[MRS-HTTP] ⚠️  DEPRECATED: oauth-authorization-server endpoint accessed');
+  console.warn('[MRS-HTTP] Clients should use: /.well-known/oauth-protected-resource');
+
+  // Return 301 redirect to correct endpoint
+  res.redirect(301, '/.well-known/oauth-protected-resource');
 });
 
 /**
@@ -262,11 +283,12 @@ export function startMrsHttpServer() {
     console.log('\n✅ Server is running\n');
     console.log('Endpoints:');
     console.log(`  GET  http://${host}:${port}/.well-known/mcp.json`);
-    console.log(`  GET  http://${host}:${port}/.well-known/oauth-authorization-server`);
+    console.log(`  GET  http://${host}:${port}/.well-known/oauth-protected-resource`);
     console.log(`  GET  http://${host}:${port}/health`);
     console.log(`  POST http://${host}:${port}/mcp/v1/tools/list`);
     console.log(`  POST http://${host}:${port}/mcp/v1/tools/call`);
-    console.log('\n🔐 Authentication: Bearer token (MCP access token or OAuth token)\n');
+    console.log('\n🔐 Authentication: Bearer token (Okta OAuth token)');
+    console.log('🎫 Token validation: Okta ORG/CUSTOM authorization servers\n');
   });
 
   // Keep process alive on signals (graceful shutdown)
