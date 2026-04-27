@@ -179,9 +179,11 @@ app.post('/mcp', async (req, res) => {
       res.status(401)
         .header('WWW-Authenticate', `Bearer resource_metadata="${protectedResourceUrl}"`)
         .header('Access-Control-Expose-Headers', 'WWW-Authenticate')
+        .header('Access-Control-Allow-Origin', '*')
+        .header('Content-Type', 'application/json')
         .json({
           error: 'unauthorized',
-          message: 'Authentication required. See WWW-Authenticate header for resource metadata.',
+          message: 'Authentication required',
         });
       return;
     }
@@ -201,11 +203,13 @@ app.post('/mcp', async (req, res) => {
       const protectedResourceUrl = `${config.http?.baseUrl || 'https://okta-governance-mcp.onrender.com'}/.well-known/oauth-protected-resource`;
 
       res.status(401)
-        .header('WWW-Authenticate', `Bearer resource_metadata="${protectedResourceUrl}", error="invalid_token"`)
+        .header('WWW-Authenticate', `Bearer resource_metadata="${protectedResourceUrl}"`)
         .header('Access-Control-Expose-Headers', 'WWW-Authenticate')
+        .header('Access-Control-Allow-Origin', '*')
+        .header('Content-Type', 'application/json')
         .json({
-          error: 'invalid_token',
-          message: 'Invalid or expired access token',
+          error: 'unauthorized',
+          message: 'Authentication required',
         });
       return;
     }

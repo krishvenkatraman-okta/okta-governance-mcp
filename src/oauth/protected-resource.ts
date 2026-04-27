@@ -37,9 +37,6 @@ export interface ProtectedResourceMetadata {
 
   /** OPTIONAL: How to send the bearer token */
   bearer_methods_supported?: string[];
-
-  /** OPTIONAL: Token types accepted */
-  token_types_supported?: string[];
 }
 
 /**
@@ -68,6 +65,10 @@ export function getProtectedResourceMetadata(): ProtectedResourceMetadata {
   // Documentation URL
   const resourceDocumentation = config.resource?.documentation || `${baseUrl}/docs`;
 
+  // Get tool-specific scopes and add OIDC scopes
+  const toolScopes = getAllToolScopes();
+  const allScopes = ['openid', 'profile', 'email', ...toolScopes];
+
   return {
     // Your MCP server's actual URL
     resource: resourceIdentifier,
@@ -81,13 +82,10 @@ export function getProtectedResourceMetadata(): ProtectedResourceMetadata {
     // Documentation
     resource_documentation: resourceDocumentation,
 
-    // Scopes required for this resource
-    scopes_supported: getAllToolScopes(),
+    // Scopes required for this resource (OIDC + Okta admin scopes)
+    scopes_supported: allScopes,
 
     // How to send the bearer token
     bearer_methods_supported: ['header'],
-
-    // Token types accepted
-    token_types_supported: ['Bearer'],
   };
 }
