@@ -186,6 +186,9 @@ app.get('/.well-known/oauth-authorization-server', (_req, res) => {
  */
 app.post('/mcp', async (req, res) => {
   try {
+    console.log('[MCP-HTTP] POST /mcp request received');
+    console.log('[MCP-HTTP] Request body:', JSON.stringify(req.body, null, 2));
+
     // Check for Authorization header
     const authHeader = req.headers.authorization;
 
@@ -205,8 +208,13 @@ app.post('/mcp', async (req, res) => {
       return;
     }
 
+    console.log('[MCP-HTTP] Authorization header found, authenticating...');
+    console.log('[MCP-HTTP] Token (first 20 chars):', authHeader.substring(7, 27) + '...');
+
     // Authenticate request
     const context = await authenticateRequest(req);
+
+    console.log('[MCP-HTTP] Authentication result:', context ? 'SUCCESS' : 'FAILED');
 
     if (!context) {
       // Invalid token - return 401 with WWW-Authenticate header
