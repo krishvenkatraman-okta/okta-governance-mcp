@@ -218,6 +218,83 @@ app.get('/mcp', (_req, res) => {
 });
 
 /**
+ * GET /authorize
+ * OAuth Authorization Endpoint Proxy
+ *
+ * VS Code expects the authorization endpoint on the MCP server URL.
+ * This endpoint proxies to the actual Okta authorization server.
+ */
+app.get('/authorize', (req, res) => {
+  try {
+    const oktaIssuer = config.okta?.oauth?.issuer || 'https://fcxdemo.okta.com';
+    const authEndpoint = config.okta?.oauth?.authorizationEndpoint || `${oktaIssuer}/oauth2/v1/authorize`;
+
+    // Forward all query parameters to Okta
+    const queryString = new URLSearchParams(req.query as Record<string, string>).toString();
+    const redirectUrl = `${authEndpoint}?${queryString}`;
+
+    console.log('[MRS-HTTP] Proxying authorization request to Okta:', redirectUrl);
+
+    // Redirect to Okta authorization endpoint
+    res.redirect(302, redirectUrl);
+  } catch (error) {
+    console.error('[MRS-HTTP] Error proxying authorization request:', error);
+    res.status(500).json({
+      error: 'Internal Server Error',
+      message: 'Failed to proxy authorization request',
+    });
+  }
+});
+
+/**
+ * POST /token
+ * OAuth Token Endpoint Proxy
+ *
+ * VS Code expects the token endpoint on the MCP server URL.
+ * This endpoint proxies to the actual Okta token server.
+ */
+app.post('/token', express.urlencoded({ extended: true }), async (req, res) => {
+  try {
+    const oktaIssuer = config.okta?.oauth?.issuer || 'https://fcxdemo.okta.com';
+    const tokenEndpoint = config.okta?.oauth?.tokenEndpoint || `${oktaIssuer}/oauth2/v1/token`;
+
+    console.log('[MRS-HTTP] Proxying token request to Okta:', tokenEndpoint);
+    console.log('[MRS-HTTP] Token request body:', req.body);
+
+    // Build form data from request body
+    const formData = new URLSearchParams();
+    for (const [key, value] of Object.entries(req.body)) {
+      if (typeof value === 'string') {
+        formData.append(key, value);
+      }
+    }
+
+    // Forward the token request to Okta
+    const response = await fetch(tokenEndpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Accept': 'application/json',
+      },
+      body: formData.toString(),
+    });
+
+    const data = await response.json();
+
+    console.log('[MRS-HTTP] Token response from Okta:', response.status);
+
+    // Forward Okta's response back to VS Code
+    res.status(response.status).json(data);
+  } catch (error) {
+    console.error('[MRS-HTTP] Error proxying token request:', error);
+    res.status(500).json({
+      error: 'server_error',
+      error_description: 'Failed to proxy token request',
+    });
+  }
+});
+
+/**
  * POST /mcp/v1/tools/list
  * List available tools for authenticated user
  */
@@ -363,6 +440,10 @@ export function startMrsHttpServer() {
     console.log(`    POST http://${host}:${port}/mcp`);
     console.log(`    GET  http://${host}:${port}/mcp`);
     console.log('');
+    console.log('  OAuth Proxy (VS Code → Okta):');
+    console.log(`    GET  http://${host}:${port}/authorize → Okta`);
+    console.log(`    POST http://${host}:${port}/token → Okta`);
+    console.log('');
     console.log('  OAuth Discovery:');
     console.log(`    GET  http://${host}:${port}/.well-known/oauth-protected-resource`);
     console.log(`    GET  http://${host}:${port}/.well-known/mcp.json`);
@@ -375,7 +456,7 @@ export function startMrsHttpServer() {
     console.log(`    GET  http://${host}:${port}/health`);
     console.log('\n🔐 Authentication: Bearer token (Okta OAuth token)');
     console.log('🎫 Token validation: Okta ORG/CUSTOM authorization servers');
-    console.log('📱 VS Code: POST /mcp triggers OAuth flow via WWW-Authenticate header\n');
+    console.log('📱 VS Code: Proxies OAuth requests to Okta authorization server\n');
   });
 
   // Keep process alive on signals (graceful shutdown)
