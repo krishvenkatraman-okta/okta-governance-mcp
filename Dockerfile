@@ -37,11 +37,18 @@ COPY postman ./postman
 # Create keys directory
 RUN mkdir -p keys
 
+# Entrypoint script — writes PEM keys from env vars to files
+COPY docker-entrypoint.sh ./
+RUN chmod +x docker-entrypoint.sh
+
 # Environment variables will be provided at runtime
 ENV NODE_ENV=production
 
-# Expose port for HTTP server (Render will set PORT via environment)
+# Expose port for HTTP server
 EXPOSE 3002
+
+# Entrypoint writes keys, then execs CMD
+ENTRYPOINT ["./docker-entrypoint.sh"]
 
 # Start the HTTP server (for cloud hosting)
 # For stdio mode, override CMD with: node dist/index.js

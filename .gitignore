@@ -49,3 +49,10 @@ public_key.*
 keys/
 *.pem
 test-token.txt
+
+# Terraform
+terraform/.terraform/
+terraform/*.tfstate*
+terraform/tfplan
+terraform/*.tfvars
+!terraform/terraform.tfvars.example

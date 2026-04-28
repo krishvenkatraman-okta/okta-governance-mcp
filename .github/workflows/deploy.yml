@@ -1,0 +1,147 @@
+name: Deploy Okta Governance MCP
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Action to perform'
+        required: true
+        default: 'deploy'
+        type: choice
+        options:
+          - deploy
+          - terraform-plan
+          - terraform-apply
+          - terraform-destroy
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  AWS_REGION: us-east-2
+  ECS_CLUSTER: okta-governance-mcp
+  ECS_SERVICE: okta-governance-mcp
+  ECR_REPO: okta-governance-mcp
+
+jobs:
+  run:
+    name: ${{ inputs.action }}
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          role-session-name: GitHubActions-GovernanceMCP-${{ inputs.action }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # =================================================================
+      # Terraform
+      # =================================================================
+      - name: Setup Terraform
+        if: startsWith(inputs.action, 'terraform')
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.0"
+
+      - name: Terraform Init
+        if: startsWith(inputs.action, 'terraform')
+        working-directory: terraform
+        run: terraform init -upgrade
+
+      - name: Terraform Plan
+        if: inputs.action == 'terraform-plan' || inputs.action == 'terraform-apply'
+        working-directory: terraform
+        run: terraform plan -out=tfplan -no-color | tee plan.txt
+        env:
+          TF_VAR_okta_domain: ${{ secrets.OKTA_DOMAIN }}
+          TF_VAR_okta_client_id: ${{ secrets.OKTA_CLIENT_ID }}
+          TF_VAR_okta_private_key_kid: ${{ secrets.OKTA_PRIVATE_KEY_KID }}
+          TF_VAR_okta_private_key_pem: ${{ secrets.OKTA_PRIVATE_KEY_PEM }}
+          TF_VAR_okta_oauth_issuer: ${{ secrets.OKTA_OAUTH_ISSUER }}
+
+      - name: Terraform Apply
+        if: inputs.action == 'terraform-apply'
+        working-directory: terraform
+        run: terraform apply -auto-approve tfplan
+        env:
+          TF_VAR_okta_domain: ${{ secrets.OKTA_DOMAIN }}
+          TF_VAR_okta_client_id: ${{ secrets.OKTA_CLIENT_ID }}
+          TF_VAR_okta_private_key_kid: ${{ secrets.OKTA_PRIVATE_KEY_KID }}
+          TF_VAR_okta_private_key_pem: ${{ secrets.OKTA_PRIVATE_KEY_PEM }}
+          TF_VAR_okta_oauth_issuer: ${{ secrets.OKTA_OAUTH_ISSUER }}
+
+      - name: Terraform Outputs
+        if: inputs.action == 'terraform-apply'
+        working-directory: terraform
+        run: terraform output
+
+      - name: Terraform Destroy
+        if: inputs.action == 'terraform-destroy'
+        working-directory: terraform
+        run: terraform destroy -auto-approve -no-color
+        env:
+          TF_VAR_okta_domain: ${{ secrets.OKTA_DOMAIN }}
+          TF_VAR_okta_client_id: ${{ secrets.OKTA_CLIENT_ID }}
+          TF_VAR_okta_private_key_kid: ${{ secrets.OKTA_PRIVATE_KEY_KID }}
+          TF_VAR_okta_private_key_pem: ${{ secrets.OKTA_PRIVATE_KEY_PEM }}
+          TF_VAR_okta_oauth_issuer: ${{ secrets.OKTA_OAUTH_ISSUER }}
+
+      # =================================================================
+      # Docker Build + Deploy
+      # =================================================================
+      - name: Login to ECR
+        if: inputs.action == 'deploy'
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build & Push
+        if: inputs.action == 'deploy'
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          ECR_URL="${ACCOUNT_ID}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPO }}"
+
+          docker build -t ${{ env.ECR_REPO }} .
+          docker tag ${{ env.ECR_REPO }}:latest ${ECR_URL}:latest
+          docker tag ${{ env.ECR_REPO }}:latest ${ECR_URL}:${{ github.sha }}
+          docker push ${ECR_URL}:latest
+          docker push ${ECR_URL}:${{ github.sha }}
+
+      - name: Force ECS Deployment
+        if: inputs.action == 'deploy'
+        run: |
+          aws ecs update-service \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --service ${{ env.ECS_SERVICE }} \
+            --force-new-deployment
+
+      # =================================================================
+      # Summary + Artifacts
+      # =================================================================
+      - name: Summary
+        if: always()
+        run: |
+          echo "## Okta Governance MCP — ${{ inputs.action }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ inputs.action }}" = "deploy" ]; then
+            echo "**URL:** https://governance-mcp.supersafe-ai.io" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Upload Terraform Artifacts
+        if: always() && startsWith(inputs.action, 'terraform')
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-${{ inputs.action }}-${{ github.run_number }}
+          path: terraform/plan.txt
+          retention-days: 14
+          if-no-files-found: ignore
+
+      - name: Cleanup
+        if: always() && startsWith(inputs.action, 'terraform')
+        working-directory: terraform
+        run: rm -f tfplan plan.txt
