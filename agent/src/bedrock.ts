@@ -151,6 +151,10 @@ export class GovernanceAgent {
     return "(Agent reached maximum iterations without a final response)";
   }
 
+  updateMcpToken(token: string): void {
+    this.mcpClient.setAccessToken(token);
+  }
+
   resetConversation(): void {
     this.conversationHistory = [];
   }

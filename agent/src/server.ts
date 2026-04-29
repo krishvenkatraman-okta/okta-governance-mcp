@@ -1,47 +1,91 @@
 /**
- * Governance Agent — Express server with chat API and web UI.
+ * Governance Agent — Express server with Okta SSO, chat API, and web UI.
  *
- * GET  /          — Chat UI
- * GET  /health    — Health check
- * POST /api/chat  — Send a message, get a response
- * POST /api/reset — Reset conversation
- * GET  /api/tools — List available MCP tools
+ * Auth flow:
+ *   GET  /auth/login    → Okta OIDC login (PKCE)
+ *   GET  /auth/callback → Token exchange, store in session
+ *   GET  /auth/logout   → Clear session + Okta logout
+ *
+ * Authenticated routes:
+ *   GET  /              — Chat UI
+ *   POST /api/chat      — Send a message, get a response
+ *   POST /api/reset     — Reset conversation
+ *   GET  /api/tools     — List available MCP tools
+ *   GET  /api/user      — Current user info
+ *
+ * Unauthenticated:
+ *   GET  /health        — Health check
  */
 
 import "dotenv/config";
 import express from "express";
+import session from "express-session";
 import { McpClient } from "./mcp-client.js";
 import { GovernanceAgent } from "./bedrock.js";
+import { authRouter, requireAuth, getAccessToken } from "./auth.js";
 
 const PORT = parseInt(process.env.AGENT_PORT || "3100");
 const MCP_SERVER_URL = process.env.MCP_SERVER_URL || "http://localhost:3002";
-const MCP_ACCESS_TOKEN = process.env.MCP_ACCESS_TOKEN || "";
+const SESSION_SECRET = process.env.SESSION_SECRET || "governance-agent-dev-secret";
+const SSO_ENABLED = !!(process.env.OKTA_ISSUER && process.env.OKTA_AGENT_CLIENT_ID);
+
+// Per-user agent instances — keyed by Okta user sub (or "anonymous" if no SSO)
+const agents = new Map<string, GovernanceAgent>();
+
+function getOrCreateAgent(userId: string, accessToken?: string): GovernanceAgent {
+  const existing = agents.get(userId);
+  if (existing) {
+    // Update token in case it refreshed
+    if (accessToken) {
+      existing.updateMcpToken(accessToken);
+    }
+    return existing;
+  }
+
+  const mcpClient = new McpClient(MCP_SERVER_URL, accessToken);
+  const agent = new GovernanceAgent(mcpClient);
+  agents.set(userId, agent);
+  return agent;
+}
 
 async function main() {
-  // Initialize MCP client + agent
-  const mcpClient = new McpClient(MCP_SERVER_URL, MCP_ACCESS_TOKEN || undefined);
-  const agent = new GovernanceAgent(mcpClient);
-
-  try {
-    await agent.initialize();
-    console.log(`Connected to MCP server at ${MCP_SERVER_URL}`);
-    console.log(`Tools available: ${agent.getToolCount()}`);
-  } catch (err) {
-    console.error(`Failed to connect to MCP server: ${err}`);
-    console.log("Starting without tools — will retry on first chat");
-  }
+  console.log(`SSO: ${SSO_ENABLED ? "enabled" : "disabled (set OKTA_ISSUER + OKTA_AGENT_CLIENT_ID to enable)"}`);
 
   const app = express();
   app.use(express.json());
 
-  // Health check
+  // Session middleware
+  app.use(
+    session({
+      secret: SESSION_SECRET,
+      resave: false,
+      saveUninitialized: false,
+      cookie: {
+        secure: process.env.NODE_ENV === "production",
+        httpOnly: true,
+        maxAge: 8 * 60 * 60 * 1000, // 8 hours
+      },
+    })
+  );
+
+  // Health check (unauthenticated)
   app.get("/health", (_req, res) => {
     res.json({
       status: "ok",
-      tools: agent.getToolCount(),
+      sso: SSO_ENABLED,
       mcpServer: MCP_SERVER_URL,
     });
   });
+
+  // Auth routes
+  if (SSO_ENABLED) {
+    app.use("/auth", authRouter());
+  }
+
+  // Gate everything else behind auth (if SSO enabled)
+  if (SSO_ENABLED) {
+    app.use(requireAuth);
+  }
 
   // Chat API
   app.post("/api/chat", async (req, res) => {
@@ -52,14 +96,19 @@ async function main() {
     }
 
     try {
-      // Lazy-init if tools weren't loaded at startup
+      const userId = req.session.user?.sub || "anonymous";
+      const accessToken = getAccessToken(req);
+      const agent = getOrCreateAgent(userId, accessToken);
+
+      // Lazy-init tools on first chat
       if (agent.getToolCount() === 0) {
         await agent.initialize();
       }
 
-      console.log(`\n>>> ${message}`);
+      const userName = req.session.user?.name || "anonymous";
+      console.log(`\n[${userName}] >>> ${message}`);
       const response = await agent.chat(message);
-      console.log(`<<< ${response.substring(0, 200)}...`);
+      console.log(`[${userName}] <<< ${response.substring(0, 200)}...`);
 
       res.json({ response });
     } catch (err) {
@@ -69,22 +118,35 @@ async function main() {
   });
 
   // Reset conversation
-  app.post("/api/reset", (_req, res) => {
-    agent.resetConversation();
-    res.json({ status: "ok", message: "Conversation reset" });
+  app.post("/api/reset", (req, res) => {
+    const userId = req.session.user?.sub || "anonymous";
+    const agent = agents.get(userId);
+    if (agent) agent.resetConversation();
+    res.json({ status: "ok" });
   });
 
   // List tools
-  app.get("/api/tools", (_req, res) => {
-    res.json({
-      count: agent.getToolCount(),
-      tools: agent.getToolNames(),
-    });
+  app.get("/api/tools", async (req, res) => {
+    const userId = req.session.user?.sub || "anonymous";
+    const accessToken = getAccessToken(req);
+    const agent = getOrCreateAgent(userId, accessToken);
+    try {
+      if (agent.getToolCount() === 0) await agent.initialize();
+      res.json({ count: agent.getToolCount(), tools: agent.getToolNames() });
+    } catch {
+      res.json({ count: 0, tools: [] });
+    }
+  });
+
+  // Current user info
+  app.get("/api/user", (req, res) => {
+    res.json(req.session.user || { email: "anonymous", name: "Anonymous" });
   });
 
   // Chat UI
-  app.get("/", (_req, res) => {
-    res.send(CHAT_HTML);
+  app.get("/", (req, res) => {
+    const user = req.session.user;
+    res.send(getChatHtml(user?.name || "Guest", user?.email || "", SSO_ENABLED));
   });
 
   app.listen(PORT, "0.0.0.0", () => {
@@ -92,7 +154,8 @@ async function main() {
   });
 }
 
-const CHAT_HTML = `<!DOCTYPE html>
+function getChatHtml(userName: string, userEmail: string, ssoEnabled: boolean): string {
+  return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -105,18 +168,24 @@ const CHAT_HTML = `<!DOCTYPE html>
       background: #f8fafc; height: 100vh; display: flex; flex-direction: column;
     }
     header {
-      background: #1e293b; color: white; padding: 16px 24px;
+      background: #1e293b; color: white; padding: 14px 24px;
       display: flex; align-items: center; gap: 12px;
     }
     header .icon {
       width: 36px; height: 36px; background: #3b82f6; border-radius: 8px;
       display: flex; align-items: center; justify-content: center; font-size: 18px;
     }
+    header .title-area { flex: 1; }
     header h1 { font-size: 16px; font-weight: 600; }
     header p { font-size: 12px; color: #94a3b8; }
+    header .user-area { text-align: right; }
+    header .user-area .name { font-size: 13px; color: #e2e8f0; }
+    header .user-area .email { font-size: 11px; color: #64748b; }
+    header .user-area a { color: #94a3b8; font-size: 11px; text-decoration: none; margin-left: 8px; }
+    header .user-area a:hover { color: white; }
     .toolbar {
       background: white; border-bottom: 1px solid #e2e8f0; padding: 8px 24px;
-      display: flex; gap: 8px; align-items: center;
+      display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
     }
     .toolbar button {
       padding: 6px 14px; border: 1px solid #e2e8f0; border-radius: 6px;
@@ -128,7 +197,7 @@ const CHAT_HTML = `<!DOCTYPE html>
       flex: 1; overflow-y: auto; padding: 24px;
       display: flex; flex-direction: column; gap: 16px;
     }
-    .msg { max-width: 80%; padding: 12px 16px; border-radius: 12px; line-height: 1.6; font-size: 14px; }
+    .msg { max-width: 80%; padding: 12px 16px; border-radius: 12px; line-height: 1.6; font-size: 14px; white-space: pre-wrap; }
     .msg.user {
       align-self: flex-end; background: #3b82f6; color: white; border-bottom-right-radius: 4px;
     }
@@ -138,9 +207,8 @@ const CHAT_HTML = `<!DOCTYPE html>
     }
     .msg.assistant pre {
       background: #f1f5f9; padding: 8px 12px; border-radius: 6px;
-      overflow-x: auto; font-size: 13px; margin: 8px 0;
+      overflow-x: auto; font-size: 13px; margin: 8px 0; white-space: pre;
     }
-    .msg.assistant code { font-size: 13px; }
     .msg.assistant table { border-collapse: collapse; margin: 8px 0; font-size: 13px; }
     .msg.assistant th, .msg.assistant td {
       border: 1px solid #e2e8f0; padding: 4px 10px; text-align: left;
@@ -152,14 +220,8 @@ const CHAT_HTML = `<!DOCTYPE html>
     .msg.thinking {
       align-self: flex-start; color: #94a3b8; font-size: 13px;
     }
-    .msg.thinking::after {
-      content: ''; animation: dots 1.5s infinite;
-    }
-    @keyframes dots {
-      0%, 20% { content: '.'; }
-      40% { content: '..'; }
-      60%, 100% { content: '...'; }
-    }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+    .msg.thinking { animation: pulse 1.5s ease-in-out infinite; }
     #input-area {
       background: white; border-top: 1px solid #e2e8f0; padding: 16px 24px;
       display: flex; gap: 12px;
@@ -180,20 +242,25 @@ const CHAT_HTML = `<!DOCTYPE html>
 <body>
   <header>
     <div class="icon">🛡️</div>
-    <div>
+    <div class="title-area">
       <h1>Okta Governance Agent</h1>
       <p>AI-powered access review, role mining, and governance</p>
+    </div>
+    <div class="user-area">
+      <div class="name">${userName}</div>
+      <div class="email">${userEmail}${ssoEnabled ? ' <a href="/auth/logout">Sign out</a>' : ""}</div>
     </div>
   </header>
   <div class="toolbar">
     <button onclick="resetChat()">New Chat</button>
-    <button onclick="suggestPrompt('Who are the inactive users on our Salesforce app?')">Inactive Users</button>
-    <button onclick="suggestPrompt('Generate access review candidates for our top apps')">Review Candidates</button>
-    <button onclick="suggestPrompt('What apps can I manage and what does their access look like?')">My Apps</button>
+    <button onclick="suggestPrompt('Who are the inactive users across our governance-enabled apps?')">Inactive Users</button>
+    <button onclick="suggestPrompt('Generate access review candidates ranked by risk')">Review Candidates</button>
+    <button onclick="suggestPrompt('What apps can I manage and what does their access structure look like?')">My Apps</button>
+    <button onclick="suggestPrompt('List the groups I manage and their members')">My Groups</button>
     <span class="tool-count" id="tool-count">Loading tools...</span>
   </div>
   <div id="messages">
-    <div class="msg system">Ask me about access reviews, user activity, role mining, or app governance.</div>
+    <div class="msg system">Welcome, ${userName}. Ask me about access reviews, user activity, role mining, or app governance.</div>
   </div>
   <div id="input-area">
     <input type="text" id="input" placeholder="Ask about access, users, or governance..." autofocus
@@ -206,18 +273,17 @@ const CHAT_HTML = `<!DOCTYPE html>
     const inputEl = document.getElementById('input');
     const sendBtn = document.getElementById('send-btn');
 
-    // Load tool count
     fetch('/api/tools').then(r => r.json()).then(d => {
-      document.getElementById('tool-count').textContent = d.count + ' governance tools available';
+      document.getElementById('tool-count').textContent = d.count + ' governance tools';
     }).catch(() => {
-      document.getElementById('tool-count').textContent = 'MCP server not connected';
+      document.getElementById('tool-count').textContent = 'Connecting...';
     });
 
     function addMessage(text, cls) {
       const div = document.createElement('div');
       div.className = 'msg ' + cls;
       if (cls === 'assistant') {
-        div.innerHTML = formatMarkdown(text);
+        div.innerHTML = formatResponse(text);
       } else {
         div.textContent = text;
       }
@@ -226,43 +292,32 @@ const CHAT_HTML = `<!DOCTYPE html>
       return div;
     }
 
-    function formatMarkdown(text) {
-      // Simple markdown → HTML (tables, code blocks, bold, lists)
-      return text
-        .replace(/\`\`\`([\\s\\S]*?)\`\`\`/g, '<pre><code>$1</code></pre>')
-        .replace(/\`([^\`]+)\`/g, '<code>$1</code>')
-        .replace(/\\*\\*(.+?)\\*\\*/g, '<strong>$1</strong>')
-        .replace(/^### (.+)$/gm, '<h4 style="margin:12px 0 4px;font-size:14px;">$1</h4>')
-        .replace(/^## (.+)$/gm, '<h3 style="margin:12px 0 4px;font-size:15px;">$1</h3>')
-        .replace(/^- (.+)$/gm, '• $1<br>')
-        .replace(/^\\d+\\. (.+)$/gm, '$&<br>')
-        .replace(/\\n\\n/g, '<br><br>')
-        .replace(/\\n/g, '<br>')
-        // Simple table detection
-        .replace(/(\\|.+\\|\\n?)+/g, function(match) {
-          const rows = match.trim().split('\\n').filter(r => r.trim());
-          if (rows.length < 2) return match;
-          let html = '<table>';
-          rows.forEach((row, i) => {
-            if (row.match(/^\\|[-:\\s|]+\\|$/)) return; // separator row
-            const cells = row.split('|').filter(c => c.trim());
-            const tag = i === 0 ? 'th' : 'td';
-            html += '<tr>' + cells.map(c => '<' + tag + '>' + c.trim() + '</' + tag + '>').join('') + '</tr>';
-          });
-          html += '</table>';
-          return html;
-        });
+    function formatResponse(text) {
+      // Code blocks
+      text = text.replace(/\`\`\`([\\s\\S]*?)\`\`\`/g, '<pre>$1</pre>');
+      // Inline code
+      text = text.replace(/\`([^\`]+)\`/g, '<code style="background:#f1f5f9;padding:1px 5px;border-radius:3px;font-size:13px;">$1</code>');
+      // Bold
+      text = text.replace(/\\*\\*(.+?)\\*\\*/g, '<strong>$1</strong>');
+      // Headers
+      text = text.replace(/^### (.+)$/gm, '<div style="font-weight:600;margin:12px 0 4px;font-size:14px;">$1</div>');
+      text = text.replace(/^## (.+)$/gm, '<div style="font-weight:600;margin:16px 0 6px;font-size:15px;">$1</div>');
+      // Lists
+      text = text.replace(/^[\\-\\*] (.+)$/gm, '<div style="padding-left:16px;">• $1</div>');
+      text = text.replace(/^(\\d+)\\. (.+)$/gm, '<div style="padding-left:16px;">$1. $2</div>');
+      // Line breaks
+      text = text.replace(/\\n\\n/g, '<br><br>');
+      text = text.replace(/\\n/g, '<br>');
+      return text;
     }
 
     async function sendMessage() {
       const msg = inputEl.value.trim();
       if (!msg) return;
-
       inputEl.value = '';
       sendBtn.disabled = true;
       addMessage(msg, 'user');
-
-      const thinking = addMessage('Thinking', 'thinking');
+      const thinking = addMessage('Analyzing with governance tools...', 'thinking');
 
       try {
         const resp = await fetch('/api/chat', {
@@ -271,9 +326,12 @@ const CHAT_HTML = `<!DOCTYPE html>
           body: JSON.stringify({ message: msg }),
         });
         thinking.remove();
-
         if (!resp.ok) {
           const err = await resp.json();
+          if (resp.status === 401) {
+            window.location.href = '/auth/login';
+            return;
+          }
           addMessage('Error: ' + (err.error || resp.statusText), 'system');
         } else {
           const data = await resp.json();
@@ -299,5 +357,6 @@ const CHAT_HTML = `<!DOCTYPE html>
   </script>
 </body>
 </html>`;
+}
 
 main().catch(console.error);
