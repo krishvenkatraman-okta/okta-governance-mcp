@@ -16,7 +16,9 @@ import crypto from "crypto";
 import { Router, type Request, type Response, type NextFunction } from "express";
 import fetch from "node-fetch";
 
-// Extend session to hold our auth data
+import type { Message } from "@aws-sdk/client-bedrock-runtime";
+
+// Extend session to hold auth data + conversation history
 declare module "express-session" {
   interface SessionData {
     user?: {
@@ -28,6 +30,7 @@ declare module "express-session" {
     idToken?: string;
     codeVerifier?: string;
     state?: string;
+    conversationHistory?: Message[];
   }
 }
 

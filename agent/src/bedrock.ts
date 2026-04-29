@@ -1,9 +1,9 @@
 /**
  * Bedrock Claude client — handles the agentic loop with tool use.
  *
- * Sends messages to Claude via Bedrock, handles tool_use responses by
- * calling the MCP server, and feeds results back until Claude produces
- * a final text response.
+ * Stateless per-request design: conversation history is passed in and
+ * returned (stored in the caller's session, not here). The MCP token
+ * is set per-request so different users get different tool access.
  */
 
 import {
@@ -33,11 +33,16 @@ When analyzing data, be specific with numbers and names. Present findings in cle
 
 When you don't have enough information, ask clarifying questions rather than guessing.`;
 
+export interface ChatResult {
+  response: string;
+  history: Message[];
+}
+
 export class GovernanceAgent {
   private bedrock: BedrockRuntimeClient;
   private mcpClient: McpClient;
   private tools: McpTool[] = [];
-  private conversationHistory: Message[] = [];
+  private toolConfig: ToolConfiguration | undefined;
 
   constructor(mcpClient: McpClient) {
     this.bedrock = new BedrockRuntimeClient({ region: AWS_REGION });
@@ -47,30 +52,46 @@ export class GovernanceAgent {
   async initialize(): Promise<void> {
     await this.mcpClient.initialize();
     this.tools = await this.mcpClient.listTools();
+    this.toolConfig = this.buildToolConfig();
     console.log(`Agent initialized with ${this.tools.length} MCP tools`);
   }
 
-  private getToolConfig(): ToolConfiguration {
+  private buildToolConfig(): ToolConfiguration | undefined {
+    if (this.tools.length === 0) return undefined;
     const tools = this.tools.map((t) => ({
       toolSpec: {
         name: t.name,
         description: t.description,
-        inputSchema: {
-          json: t.inputSchema,
-        },
+        inputSchema: { json: t.inputSchema },
       },
     }));
     return { tools: tools as Tool[] };
   }
 
-  async chat(userMessage: string): Promise<string> {
-    // Add user message to history
-    this.conversationHistory.push({
+  /**
+   * Chat with the agent. Stateless: caller provides history and gets
+   * updated history back. Token is set per-request for user isolation.
+   */
+  async chat(
+    userMessage: string,
+    history: Message[],
+    accessToken?: string,
+  ): Promise<ChatResult> {
+    // Set the token for this request's MCP calls
+    if (accessToken) {
+      this.mcpClient.setAccessToken(accessToken);
+    }
+
+    // Clone history to avoid mutating the caller's array mid-loop
+    const messages = [...history];
+
+    // Add user message
+    messages.push({
       role: "user",
       content: [{ text: userMessage }],
     });
 
-    // Agentic loop — keep going until we get a final text response
+    // Agentic loop
     let iterations = 0;
     const maxIterations = 10;
 
@@ -80,37 +101,32 @@ export class GovernanceAgent {
       const command = new ConverseCommand({
         modelId: MODEL_ID,
         system: [{ text: SYSTEM_PROMPT }],
-        messages: this.conversationHistory,
-        toolConfig: this.tools.length > 0 ? this.getToolConfig() : undefined,
+        messages,
+        toolConfig: this.toolConfig,
       });
 
       const response = await this.bedrock.send(command);
       const stopReason = response.stopReason;
       const outputContent = response.output?.message?.content || [];
 
-      // Add assistant response to history
-      this.conversationHistory.push({
-        role: "assistant",
-        content: outputContent,
-      });
+      // Add assistant response
+      messages.push({ role: "assistant", content: outputContent });
 
-      // If the model wants to use tools, execute them
+      // Tool use — execute and continue
       if (stopReason === "tool_use") {
         const toolResults: ContentBlock[] = [];
 
         for (const block of outputContent) {
           if (block.toolUse) {
             const { toolUseId, name, input } = block.toolUse;
-            console.log(`  Tool call: ${name}(${JSON.stringify(input).substring(0, 100)}...)`);
+            console.log(`  Tool: ${name}(${JSON.stringify(input).substring(0, 100)})`);
 
             try {
               const result = await this.mcpClient.callTool(
                 name!,
                 (input as Record<string, unknown>) || {}
               );
-              const resultText = result.content
-                .map((c) => c.text)
-                .join("\n");
+              const resultText = result.content.map((c) => c.text).join("\n");
 
               toolResults.push({
                 toolResult: {
@@ -131,32 +147,25 @@ export class GovernanceAgent {
           }
         }
 
-        // Add tool results as a user message and continue the loop
-        this.conversationHistory.push({
-          role: "user",
-          content: toolResults,
-        });
-
+        messages.push({ role: "user", content: toolResults });
         continue;
       }
 
-      // Model produced a final response — extract text
+      // Final text response
       const textParts = outputContent
         .filter((b): b is ContentBlock & { text: string } => "text" in b && typeof b.text === "string")
         .map((b) => b.text);
 
-      return textParts.join("\n") || "(No response)";
+      return {
+        response: textParts.join("\n") || "(No response)",
+        history: messages,
+      };
     }
 
-    return "(Agent reached maximum iterations without a final response)";
-  }
-
-  updateMcpToken(token: string): void {
-    this.mcpClient.setAccessToken(token);
-  }
-
-  resetConversation(): void {
-    this.conversationHistory = [];
+    return {
+      response: "(Agent reached maximum iterations without a final response)",
+      history: messages,
+    };
   }
 
   getToolCount(): number {

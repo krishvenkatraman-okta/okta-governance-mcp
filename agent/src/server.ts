@@ -29,27 +29,23 @@ const MCP_SERVER_URL = process.env.MCP_SERVER_URL || "http://localhost:3002";
 const SESSION_SECRET = process.env.SESSION_SECRET || "governance-agent-dev-secret";
 const SSO_ENABLED = !!(process.env.OKTA_ISSUER && process.env.OKTA_AGENT_CLIENT_ID);
 
-// Per-user agent instances — keyed by Okta user sub (or "anonymous" if no SSO)
-const agents = new Map<string, GovernanceAgent>();
-
-function getOrCreateAgent(userId: string, accessToken?: string): GovernanceAgent {
-  const existing = agents.get(userId);
-  if (existing) {
-    // Update token in case it refreshed
-    if (accessToken) {
-      existing.updateMcpToken(accessToken);
-    }
-    return existing;
-  }
-
-  const mcpClient = new McpClient(MCP_SERVER_URL, accessToken);
-  const agent = new GovernanceAgent(mcpClient);
-  agents.set(userId, agent);
-  return agent;
-}
+// Single shared agent — conversation history lives in each user's session
+let agent: GovernanceAgent;
 
 async function main() {
   console.log(`SSO: ${SSO_ENABLED ? "enabled" : "disabled (set OKTA_ISSUER + OKTA_AGENT_CLIENT_ID to enable)"}`);
+
+  // Initialize shared agent — one MCP connection, tools discovered once
+  const mcpClient = new McpClient(MCP_SERVER_URL);
+  agent = new GovernanceAgent(mcpClient);
+  try {
+    await agent.initialize();
+    console.log(`Connected to MCP server at ${MCP_SERVER_URL}`);
+    console.log(`Tools available: ${agent.getToolCount()}`);
+  } catch (err) {
+    console.error(`Failed to connect to MCP server: ${err}`);
+    console.log("Will retry on first chat request");
+  }
 
   const app = express();
   app.use(express.json());
@@ -87,7 +83,7 @@ async function main() {
     app.use(requireAuth);
   }
 
-  // Chat API
+  // Chat API — history is per-session, token is per-request
   app.post("/api/chat", async (req, res) => {
     const { message } = req.body;
     if (!message || typeof message !== "string") {
@@ -96,40 +92,38 @@ async function main() {
     }
 
     try {
-      const userId = req.session.user?.sub || "anonymous";
-      const accessToken = getAccessToken(req);
-      const agent = getOrCreateAgent(userId, accessToken);
-
-      // Lazy-init tools on first chat
+      // Lazy-init if tools weren't loaded at startup
       if (agent.getToolCount() === 0) {
         await agent.initialize();
       }
 
+      const accessToken = getAccessToken(req);
+      const history = req.session.conversationHistory || [];
       const userName = req.session.user?.name || "anonymous";
-      console.log(`\n[${userName}] >>> ${message}`);
-      const response = await agent.chat(message);
-      console.log(`[${userName}] <<< ${response.substring(0, 200)}...`);
 
-      res.json({ response });
+      console.log(`\n[${userName}] >>> ${message}`);
+      const result = await agent.chat(message, history, accessToken);
+      console.log(`[${userName}] <<< ${result.response.substring(0, 200)}...`);
+
+      // Store updated history back in session
+      req.session.conversationHistory = result.history;
+
+      res.json({ response: result.response });
     } catch (err) {
       console.error(`Chat error: ${err}`);
       res.status(500).json({ error: `${err}` });
     }
   });
 
-  // Reset conversation
+  // Reset conversation — clears session history only
   app.post("/api/reset", (req, res) => {
-    const userId = req.session.user?.sub || "anonymous";
-    const agent = agents.get(userId);
-    if (agent) agent.resetConversation();
+    req.session.conversationHistory = [];
     res.json({ status: "ok" });
   });
 
-  // List tools
-  app.get("/api/tools", async (req, res) => {
-    const userId = req.session.user?.sub || "anonymous";
-    const accessToken = getAccessToken(req);
-    const agent = getOrCreateAgent(userId, accessToken);
+  // List tools (shared — same tools for all users at discovery level;
+  // the MCP server filters per-user at call time based on their token)
+  app.get("/api/tools", async (_req, res) => {
     try {
       if (agent.getToolCount() === 0) await agent.initialize();
       res.json({ count: agent.getToolCount(), tools: agent.getToolNames() });
