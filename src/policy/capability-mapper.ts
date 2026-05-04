@@ -30,6 +30,10 @@ function mapRolesToCapabilities(
       'roles.manage',
       'apps.manage',
       'groups.manage',
+      'analytics.mining.all',
+      'analytics.outliers.all',
+      'analytics.explain.read',
+      'analytics.campaigns.all',
     ];
   }
 
@@ -45,6 +49,10 @@ function mapRolesToCapabilities(
       'reports.syslog.all',
       'groups.manage.all',
       'settings.governance.manage',
+      'analytics.mining.all',
+      'analytics.outliers.all',
+      'analytics.explain.read',
+      'analytics.campaigns.all',
     ];
   }
 
@@ -57,19 +65,27 @@ function mapRolesToCapabilities(
       'campaigns.manage.owned',
       'request_for_others.owned',
       'workflow.manage.owned',
-      'reports.syslog.owned'
+      'reports.syslog.owned',
+      'analytics.mining.owned',
+      'analytics.outliers.owned',
+      'analytics.campaigns.owned',
+      'analytics.explain.read'
     );
   }
 
   // Group admin with targets
   if (roles.groupAdmin && targets.groups.length > 0) {
-    capabilities.push('groups.manage.owned', 'campaigns.manage.owned', 'reports.syslog.owned');
+    capabilities.push(
+      'groups.manage.owned',
+      'campaigns.manage.owned',
+      'reports.syslog.owned',
+      'analytics.explain.read'
+    );
   }
 
-  // Read-only admin gets no mutation capabilities
+  // Read-only admin gets explain-only access
   if (roles.readOnlyAdmin) {
-    // No capabilities for read-only admin in governance context
-    // They would use direct API for read operations
+    capabilities.push('analytics.explain.read');
   }
 
   // Regular users get end-user capabilities (but these use direct API, not MCP)
@@ -96,6 +112,10 @@ function mapRolesToCapabilities(
  *
  * This allows SUPER_ADMIN and ORG_ADMIN users (who have .all capabilities)
  * to access tools that require .owned capabilities.
+ *
+ * The same generic suffix-stripping handles the new analytics caps:
+ * required='analytics.mining.owned' → baseCapability='analytics.mining' →
+ * allCapability='analytics.mining.all' → user with 'analytics.mining.all' passes.
  *
  * @param capability - The capability the user has
  * @param required - The capability required by the tool

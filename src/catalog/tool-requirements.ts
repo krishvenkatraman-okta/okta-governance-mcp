@@ -495,6 +495,143 @@ const requirements: Record<string, ToolRequirement> = {
     documentationRefs: ['https://developer.okta.com/docs/api/openapi/okta-management/management/tag/Group/'],
   },
 
+  /**
+   * ==========================================
+   * ADVANCED ANALYTICS TOOLS
+   * ==========================================
+   */
+
+  mine_candidate_roles: {
+    toolName: 'mine_candidate_roles',
+    description:
+      'Discover candidate roles by clustering users with similar access patterns within a scope. Returns proposed roles ranked by confidence — outputs are PROPOSALS, not actual group creations.',
+    mappedEndpoints: [
+      'List Users',
+      'List User Groups',
+      'List User Apps',
+      'List Group users',
+      'List all apps',
+    ],
+    endpointCategories: ['Users', 'Groups', 'Apps'],
+    requiredScopes: ['okta.users.read', 'okta.groups.read', 'okta.apps.read'],
+    requiredCapabilities: ['analytics.mining.owned', 'analytics.mining.all'],
+    requiredRoles: ['APP_ADMIN', 'ORG_ADMIN', 'SUPER_ADMIN'],
+    targetConstraints: ['scope_to_owned_apps_or_all'],
+    requiresTargetResource: false,
+    notes:
+      'Uses Apps/Users/Groups APIs (not in Governance collection) plus analytics. The scope_to_owned_apps_or_all constraint is arg-aware and evaluated by the tool handler via checkScopeToOwnedAppsOrAll.',
+    documentationRefs: [
+      'https://developer.okta.com/docs/api/openapi/okta-management/management/tag/User/',
+      'https://developer.okta.com/docs/api/openapi/okta-management/management/tag/Group/',
+      'https://developer.okta.com/docs/api/openapi/okta-management/management/tag/Application/',
+    ],
+  },
+
+  detect_entitlement_outliers: {
+    toolName: 'detect_entitlement_outliers',
+    description:
+      'Identify users whose access deviates significantly from their peer group (default: same department + title). Returns ranked outliers with per-item peer coverage stats.',
+    mappedEndpoints: [
+      'List Users',
+      'List User Groups',
+      'List User Apps',
+      'List all entitlements',
+    ],
+    endpointCategories: ['Users', 'Groups', 'Apps'],
+    requiredScopes: ['okta.users.read', 'okta.groups.read', 'okta.apps.read'],
+    requiredCapabilities: ['analytics.outliers.owned', 'analytics.outliers.all'],
+    requiredRoles: ['APP_ADMIN', 'ORG_ADMIN', 'SUPER_ADMIN'],
+    targetConstraints: ['scope_to_owned_apps_or_all'],
+    requiresTargetResource: false,
+    notes:
+      'Uses Apps/Users/Groups APIs (not in Governance collection) plus analytics. The scope_to_owned_apps_or_all constraint is arg-aware and evaluated by the tool handler via checkScopeToOwnedAppsOrAll.',
+    documentationRefs: [
+      'https://developer.okta.com/docs/api/openapi/okta-management/management/tag/User/',
+      'https://developer.okta.com/docs/api/openapi/okta-management/management/tag/Group/',
+      'https://developer.okta.com/docs/api/openapi/okta-management/management/tag/Application/',
+    ],
+  },
+
+  explain_user_access: {
+    toolName: 'explain_user_access',
+    description:
+      'Trace and explain in plain English how a specific user came to have access to a target (app, entitlement, or group). Returns all access paths with grant timestamps, granters, and rule expressions where applicable.',
+    mappedEndpoints: [
+      'List User Groups',
+      'List User Apps',
+      'List Group users',
+      'List all entitlements',
+    ],
+    endpointCategories: ['Users', 'Groups', 'Apps', 'Entitlements'],
+    requiredScopes: [
+      'okta.users.read',
+      'okta.groups.read',
+      'okta.apps.read',
+      'okta.governance.entitlements.read',
+    ],
+    requiredCapabilities: ['analytics.explain.read'],
+    requiredRoles: [
+      'APP_ADMIN',
+      'GROUP_ADMIN',
+      'ORG_ADMIN',
+      'SUPER_ADMIN',
+      'READ_ONLY_ADMIN',
+    ],
+    targetConstraints: ['no_constraint'],
+    requiresTargetResource: false,
+    notes:
+      'Read-only explainability tool. Available to any admin role. Combines Apps/Users/Groups APIs with the Governance Entitlements API.',
+    documentationRefs: [
+      'https://developer.okta.com/docs/api/openapi/okta-governance/governance/tag/Entitlements/',
+    ],
+  },
+
+  generate_smart_campaign: {
+    toolName: 'generate_smart_campaign',
+    description:
+      'Build a certification campaign scoped to anomalies, outliers, and dormant access — not blanket reviews. Defaults to dryRun=true (preview only); set dryRun=false to actually create the campaign.',
+    mappedEndpoints: [
+      'List Users',
+      'List User Groups',
+      'List User Apps',
+      'Create a campaign',
+      'List all campaigns',
+    ],
+    endpointCategories: ['Users', 'Groups', 'Apps', 'Campaigns'],
+    requiredScopes: [
+      'okta.users.read',
+      'okta.groups.read',
+      'okta.apps.read',
+      'okta.governance.accessCertifications.manage',
+    ],
+    requiredCapabilities: ['analytics.campaigns.owned', 'analytics.campaigns.all'],
+    requiredRoles: ['APP_ADMIN', 'ORG_ADMIN', 'SUPER_ADMIN'],
+    targetConstraints: ['scope_to_owned_apps_or_all'],
+    requiresTargetResource: false,
+    conditionalScopes: [
+      {
+        condition: 'When previewing the campaign (dryRun=true)',
+        scopes: ['okta.users.read', 'okta.groups.read', 'okta.apps.read'],
+        description: 'Read-only access; no campaign is created in Okta',
+      },
+      {
+        condition: 'When creating the campaign (dryRun=false)',
+        scopes: [
+          'okta.users.read',
+          'okta.groups.read',
+          'okta.apps.read',
+          'okta.governance.accessCertifications.manage',
+        ],
+        description: 'Full campaign management',
+      },
+    ],
+    notes:
+      'Composes outlier / dormant / direct-assignment / recent-grant rules into a campaign preview. The scope_to_owned_apps_or_all constraint is arg-aware and evaluated by the tool handler via checkScopeToOwnedAppsOrAll.',
+    documentationRefs: [
+      'https://developer.okta.com/docs/api/openapi/okta-governance/governance/tag/Campaigns/',
+    ],
+  },
+
   manage_group_campaigns: {
     toolName: 'manage_group_campaigns',
     description: 'Create and manage access certification campaigns for groups you have permission to manage',

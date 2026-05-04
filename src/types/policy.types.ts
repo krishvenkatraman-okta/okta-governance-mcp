@@ -35,7 +35,17 @@ export type Capability =
   | 'settings.governance.manage'
   | 'roles.manage'
   | 'apps.manage'
-  | 'groups.manage';
+  | 'groups.manage'
+  // Advanced analytics capabilities (delegated, scoped to owned targets)
+  | 'analytics.mining.owned'
+  | 'analytics.outliers.owned'
+  | 'analytics.campaigns.owned'
+  // Advanced analytics capabilities (org-wide)
+  | 'analytics.mining.all'
+  | 'analytics.outliers.all'
+  | 'analytics.campaigns.all'
+  // Read-only analytics capability (any admin can explain access)
+  | 'analytics.explain.read';
 
 /**
  * Authorization context for a user session
@@ -73,7 +83,11 @@ export interface RoleMapping {
 /**
  * Target constraint
  */
-export type TargetConstraint = 'must_be_owned_app' | 'must_be_owned_group' | 'no_constraint';
+export type TargetConstraint =
+  | 'must_be_owned_app'
+  | 'must_be_owned_group'
+  | 'no_constraint'
+  | 'scope_to_owned_apps_or_all';
 
 /**
  * Policy evaluation result

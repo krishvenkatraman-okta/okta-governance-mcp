@@ -69,6 +69,15 @@ export function evaluatePolicy(
         };
       }
     }
+
+    // 'scope_to_owned_apps_or_all' is arg-aware (depends on args.scopeType /
+    // args.scopeId) and the policy engine only sees `resourceId`. The capability
+    // gate above already ensured the user has either the .owned or .all
+    // analytics capability — the actual scope check runs in
+    // src/policy/scope-constraint.ts from each tool handler.
+    if (constraint === 'scope_to_owned_apps_or_all') {
+      // no-op at policy-engine time
+    }
   }
 
   // All checks passed
