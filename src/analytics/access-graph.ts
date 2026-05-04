@@ -11,22 +11,30 @@
  *   - Per-user fan-out (groups + apps) runs in batches of `BATCH_SIZE`
  *     to limit Okta API concurrency.
  *
- * Entitlements are NOT yet attached — Prompt 4 wires that up. Until then,
- * the `entitlementsById` map is empty and `accessSet` only contains
- * `group:` and `app:` nodes.
+ * Entitlements are attached for any app whose `settings.emOptInStatus`
+ * is `'ENABLED'`. The per-app entitlement bundle list is memoized
+ * (the same list applies to every user assigned to that app), so each
+ * app is hit at most once per build.
  */
 
 import { appsClient } from '../okta/apps-client.js';
+import { governanceClient } from '../okta/governance-client.js';
 import { groupsClient } from '../okta/groups-client.js';
 import { usersClient } from '../okta/users-client.js';
 import type { OktaApp, OktaGroup, OktaUser } from '../types/index.js';
 import type {
   AccessGraphApp,
+  AccessGraphEntitlement,
   AccessGraphGroup,
   AccessGraphSnapshot,
   AccessNode,
   UserAccessProfile,
 } from './types.js';
+
+/**
+ * OAuth scope used for the Governance Grants API call.
+ */
+const ENTITLEMENT_READ_SCOPE = 'okta.governance.entitlements.read';
 
 /**
  * Hard cap on users included in a single access graph build.
@@ -101,6 +109,12 @@ export async function buildAccessGraph(
   // 3. Fan out group + app fetches per user, in batches.
   const groupsById = new Map<string, AccessGraphGroup>();
   const appsById = new Map<string, AccessGraphApp>();
+  const entitlementsById = new Map<string, AccessGraphEntitlement>();
+
+  // Per-app caches: avoids re-hitting Okta for the same app across users.
+  const appDetailsCache = new Map<string, OktaApp | null>();
+  const appEmEnabledCache = new Map<string, boolean>();
+
   const profiles: UserAccessProfile[] = [];
 
   let processed = 0;
@@ -108,7 +122,12 @@ export async function buildAccessGraph(
     const batch = users.slice(i, i + BATCH_SIZE);
 
     const batchProfiles = await Promise.all(
-      batch.map((user) => buildUserProfile(user, groupsById, appsById))
+      batch.map((user) =>
+        buildUserProfile(user, groupsById, appsById, entitlementsById, {
+          appDetailsCache,
+          appEmEnabledCache,
+        })
+      )
     );
 
     profiles.push(...batchProfiles);
@@ -122,17 +141,33 @@ export async function buildAccessGraph(
   const elapsedMs = Date.now() - startedAt;
   console.log(
     `[AccessGraph] Built snapshot in ${elapsedMs}ms — ` +
-      `${profiles.length} users, ${groupsById.size} groups, ${appsById.size} apps`
+      `${profiles.length} users, ${groupsById.size} groups, ` +
+      `${appsById.size} apps, ${entitlementsById.size} entitlement(s)`
   );
 
   return {
     users: profiles,
     groupsById: Object.fromEntries(groupsById),
     appsById: Object.fromEntries(appsById),
-    entitlementsById: {},
+    entitlementsById: Object.fromEntries(entitlementsById),
     scopeDescription: describeScope(scopeType, scopeId),
     builtAt: new Date().toISOString(),
   };
+}
+
+/**
+ * Per-build caches for app-level metadata used by the entitlement fan-out.
+ *
+ * `appDetailsCache` memoizes the full `getById` payload (or `null` if the
+ * lookup failed) so we don't refetch it once per assigned user.
+ *
+ * `appEmEnabledCache` memoizes the boolean derived from
+ * `settings.emOptInStatus === 'ENABLED'` for the same reason — this is
+ * the gate we use to decide whether to fan out to the Grants API at all.
+ */
+interface AppEntitlementCaches {
+  appDetailsCache: Map<string, OktaApp | null>;
+  appEmEnabledCache: Map<string, boolean>;
 }
 
 /**
@@ -185,15 +220,19 @@ function escapeFilterValue(value: string): string {
 }
 
 /**
- * Build the access profile for one user (groups + assigned apps).
+ * Build the access profile for one user (groups + assigned apps +
+ * entitlement grants on governance-enabled apps).
  *
- * Mutates the shared `groupsById` / `appsById` lookup maps with anything
- * newly seen so the caller doesn't need to do a second pass.
+ * Mutates the shared `groupsById` / `appsById` / `entitlementsById`
+ * lookup maps with anything newly seen so the caller doesn't need to do
+ * a second pass.
  */
 async function buildUserProfile(
   user: OktaUser,
   groupsById: Map<string, AccessGraphGroup>,
-  appsById: Map<string, AccessGraphApp>
+  appsById: Map<string, AccessGraphApp>,
+  entitlementsById: Map<string, AccessGraphEntitlement>,
+  caches: AppEntitlementCaches,
 ): Promise<UserAccessProfile> {
   // Profile fields are loosely typed — Okta does not commit to which
   // attributes are present. Read defensively.
@@ -230,9 +269,26 @@ async function buildUserProfile(
     accessSet.push({ type: 'app', id, name: app.label || app.name });
   }
 
-  // TODO(prompt-4): attach entitlement nodes here once the governance
-  // entitlements client exposes a per-user listing. Until then, the
-  // accessSet contains only group + app nodes.
+  // Fan out to the Governance Grants API for any assigned app that has
+  // entitlement management enabled. The per-app `emOptInStatus` and the
+  // entitlement bundle list are looked up once per build via the caches.
+  for (const app of apps) {
+    const isEmEnabled = await isEntitlementManagementEnabled(app, caches);
+    if (!isEmEnabled) continue;
+
+    const grants = await safeListUserGrants(user.id, app.id);
+    for (const node of grantsToAccessNodes(grants)) {
+      const key = node.id;
+      if (!entitlementsById.has(key)) {
+        entitlementsById.set(key, {
+          id: node.id,
+          name: node.name,
+          appId: app.id,
+        });
+      }
+      accessSet.push(node);
+    }
+  }
 
   return {
     userId: user.id,
@@ -243,6 +299,139 @@ async function buildUserProfile(
     managerId,
     accessSet,
   };
+}
+
+/**
+ * Resolve whether an app has entitlement management opted in.
+ *
+ * The list endpoint that returns user-assigned apps does not always
+ * include `settings.emOptInStatus`, so we round-trip through `getById`
+ * (cached) when the field isn't present on the assigned-app payload.
+ */
+async function isEntitlementManagementEnabled(
+  app: OktaApp,
+  caches: AppEntitlementCaches,
+): Promise<boolean> {
+  const cached = caches.appEmEnabledCache.get(app.id);
+  if (cached !== undefined) return cached;
+
+  // Fast path: the assigned-app payload may already carry settings.
+  const inlineEmStatus = (app as any).settings?.emOptInStatus;
+  if (typeof inlineEmStatus === 'string') {
+    const enabled = inlineEmStatus === 'ENABLED';
+    caches.appEmEnabledCache.set(app.id, enabled);
+    return enabled;
+  }
+
+  // Slow path: getById, then memoize.
+  let details = caches.appDetailsCache.get(app.id);
+  if (details === undefined) {
+    try {
+      details = await appsClient.getById(app.id);
+    } catch (error) {
+      console.warn(
+        '[AccessGraph] Failed to fetch app details — assuming no entitlement management:',
+        {
+          appId: app.id,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
+      details = null;
+    }
+    caches.appDetailsCache.set(app.id, details);
+  }
+
+  const emStatus = (details as any)?.settings?.emOptInStatus;
+  const enabled = emStatus === 'ENABLED';
+  caches.appEmEnabledCache.set(app.id, enabled);
+  return enabled;
+}
+
+/**
+ * Fetch a user's entitlement grants on a specific app, returning `[]`
+ * (with a warning) on any error so the rest of the pipeline keeps going.
+ */
+async function safeListUserGrants(userId: string, appId: string): Promise<any[]> {
+  try {
+    return await governanceClient.entitlements.listForUser(
+      userId,
+      appId,
+      ENTITLEMENT_READ_SCOPE,
+    );
+  } catch (error) {
+    console.warn('[AccessGraph] Failed to list entitlement grants — continuing without:', {
+      userId,
+      appId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return [];
+  }
+}
+
+/**
+ * Project a list of grant objects (Governance API "List all grants"
+ * payloads) into the access-graph entitlement node shape.
+ *
+ * Grant payloads come in a few flavors. We surface entitlement-value
+ * granularity when `include=full_entitlements` expanded the response;
+ * otherwise we fall back to the entitlement-bundle id. Either way the
+ * resulting nodes get `type: 'entitlement'`.
+ */
+function grantsToAccessNodes(grants: any[]): AccessNode[] {
+  const out: AccessNode[] = [];
+  const seen = new Set<string>();
+
+  for (const grant of grants) {
+    if (!grant || typeof grant !== 'object') continue;
+    if (grant.status && grant.status !== 'ACTIVE') continue;
+
+    // Preferred: the expanded `entitlements` array carries id/name pairs.
+    const expanded = Array.isArray(grant.entitlements) ? grant.entitlements : [];
+    for (const ent of expanded) {
+      if (!ent?.id) continue;
+      const id = String(ent.id);
+      if (!seen.has(id)) {
+        seen.add(id);
+        out.push({
+          type: 'entitlement',
+          id,
+          name: typeof ent.name === 'string' && ent.name ? ent.name : id,
+        });
+      }
+
+      const values = Array.isArray(ent.values) ? ent.values : [];
+      for (const v of values) {
+        if (!v?.id) continue;
+        const vid = String(v.id);
+        if (seen.has(vid)) continue;
+        seen.add(vid);
+        out.push({
+          type: 'entitlement',
+          id: vid,
+          name: typeof v.name === 'string' && v.name
+            ? `${ent.name ?? 'entitlement'} = ${v.name}`
+            : vid,
+        });
+      }
+    }
+
+    // Fallback: at minimum surface the bundle id as one entitlement node
+    // so users with bundle-only grants still contribute to similarity /
+    // peer-coverage math.
+    if (expanded.length === 0 && typeof grant.entitlementBundleId === 'string') {
+      const id = `bundle:${grant.entitlementBundleId}`;
+      if (!seen.has(id)) {
+        seen.add(id);
+        out.push({
+          type: 'entitlement',
+          id,
+          name: `Entitlement bundle ${grant.entitlementBundleId}`,
+        });
+      }
+    }
+  }
+
+  return out;
 }
 
 /**

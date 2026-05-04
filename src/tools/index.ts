@@ -28,6 +28,7 @@ import { createDelegatedAccessRequestTool } from './governance/delegated-access-
 
 // Advanced analytics tools
 import { mineCandidateRolesTool } from './governance/mine-candidate-roles.js';
+import { detectEntitlementOutliersTool } from './governance/detect-entitlement-outliers.js';
 
 // Stubbed governance tools (authorization checks only)
 import {
@@ -65,6 +66,7 @@ export const allTools: ToolDefinition[] = [
 
   // Advanced analytics tools
   mineCandidateRolesTool,
+  detectEntitlementOutliersTool,
 
   // Stubbed governance tools (authorization enforced, execution pending)
   manageAppEntitlementsTool,
