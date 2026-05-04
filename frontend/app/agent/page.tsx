@@ -17,6 +17,7 @@ import ExecutionTracePanel from '@/components/ExecutionTracePanel';
 import DebugDrawer from '@/components/DebugDrawer';
 import ToolExplorer from '@/components/ToolExplorer';
 import GovernanceChecks from '@/components/GovernanceChecks';
+import { InsightsHub } from '@/components/insights';
 import { uiConfig } from '@/lib/ui-config';
 
 interface TokenState {
@@ -72,6 +73,7 @@ export default function AgentPage() {
   const [debugMode, setDebugMode] = useState(false);
   const [showToolExplorer, setShowToolExplorer] = useState(false);
   const [showGovernanceChecks, setShowGovernanceChecks] = useState(false);
+  const [showInsights, setShowInsights] = useState(false);
 
   // Check token state on mount
   useEffect(() => {
@@ -441,6 +443,18 @@ export default function AgentPage() {
         📚 Browse Tools
       </button>
 
+      {/* Insights Hub Button - Floating (stacked above Browse Tools) */}
+      <button
+        onClick={() => setShowInsights(true)}
+        className="fixed bottom-36 right-4 px-4 py-3 rounded-lg shadow-lg text-sm font-medium flex items-center gap-2"
+        style={{
+          backgroundColor: uiConfig.colors.darkBlue,
+          color: 'white',
+        }}
+      >
+        ✨ Insights
+      </button>
+
       {/* Tool Explorer Modal */}
       {showToolExplorer && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
@@ -454,6 +468,9 @@ export default function AgentPage() {
       {showGovernanceChecks && (
         <GovernanceChecks onDismiss={() => setShowGovernanceChecks(false)} />
       )}
+
+      {/* Insights Hub Modal */}
+      {showInsights && <InsightsHub onClose={() => setShowInsights(false)} />}
     </div>
   );
 }
