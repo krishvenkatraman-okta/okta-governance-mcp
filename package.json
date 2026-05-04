@@ -28,6 +28,7 @@
     "show-examples": "tsx scripts/show-tool-examples.ts",
     "demo-execution": "tsx scripts/demo-execution-layer.ts",
     "demo-auth": "tsx scripts/demo-auth-flow.ts",
+    "demo-advanced": "tsx scripts/demo-advanced-governance.ts",
     "typecheck": "tsc --noEmit"
   },
   "keywords": [
