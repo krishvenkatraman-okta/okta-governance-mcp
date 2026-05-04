@@ -10,7 +10,7 @@
 
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { uiConfig } from '@/lib/ui-config';
 
 type ScopeType = 'app' | 'group' | 'department' | 'all';
@@ -41,7 +41,7 @@ interface CandidateRole {
   rationale: string;
 }
 
-interface MiningResultPayload {
+export interface MiningResultPayload {
   scopeDescription: string;
   totalUsersAnalyzed: number;
   candidateRoles: CandidateRole[];
@@ -50,6 +50,14 @@ interface MiningResultPayload {
     totalProposed: number;
     estimatedAccessReduction: number;
   };
+}
+
+export interface RoleMiningResultsProps {
+  /**
+   * If provided, the component skips the form and renders the results
+   * panel pre-loaded with this payload. Used by the chat integration.
+   */
+  initialResult?: MiningResultPayload;
 }
 
 type RunState = 'idle' | 'running' | 'results' | 'error';
@@ -72,14 +80,28 @@ const DEFAULT_FORM: FormValues = {
   maxResults: 10,
 };
 
-export default function RoleMiningResults() {
-  const [state, setState] = useState<RunState>('idle');
+export default function RoleMiningResults({
+  initialResult,
+}: RoleMiningResultsProps = {}) {
+  const [state, setState] = useState<RunState>(initialResult ? 'results' : 'idle');
   const [form, setForm] = useState<FormValues>(DEFAULT_FORM);
   const [showAdvanced, setShowAdvanced] = useState(false);
-  const [result, setResult] = useState<MiningResultPayload | null>(null);
+  const [result, setResult] = useState<MiningResultPayload | null>(
+    initialResult ?? null,
+  );
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [expandedMembers, setExpandedMembers] = useState<Record<number, boolean>>({});
   const [expandedAccess, setExpandedAccess] = useState<Record<number, boolean>>({});
+
+  useEffect(() => {
+    if (initialResult) {
+      setResult(initialResult);
+      setState('results');
+      setExpandedMembers({});
+      setExpandedAccess({});
+      setErrorMessage(null);
+    }
+  }, [initialResult]);
 
   const updateField = <K extends keyof FormValues>(key: K, value: FormValues[K]) => {
     setForm((prev) => ({ ...prev, [key]: value }));

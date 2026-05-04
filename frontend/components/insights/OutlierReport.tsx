@@ -14,7 +14,7 @@
 
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { uiConfig } from '@/lib/ui-config';
 
 type ScopeType = 'app' | 'group' | 'department' | 'all';
@@ -45,7 +45,7 @@ interface OutlierUser {
   overallRecommendation: OutlierRecommendation;
 }
 
-interface OutlierResultPayload {
+export interface OutlierResultPayload {
   scopeDescription: string;
   totalUsersAnalyzed: number;
   analysisParameters: {
@@ -95,14 +95,32 @@ export interface OutlierReportProps {
     targetType: AccessNodeType,
     targetId: string,
   ) => void;
+  /**
+   * If provided, the component skips the form and renders the results
+   * panel pre-loaded with this payload. Used by the chat integration.
+   */
+  initialResult?: OutlierResultPayload;
 }
 
-export default function OutlierReport({ onExplainAccess }: OutlierReportProps) {
-  const [state, setState] = useState<RunState>('idle');
+export default function OutlierReport({
+  onExplainAccess,
+  initialResult,
+}: OutlierReportProps) {
+  const [state, setState] = useState<RunState>(initialResult ? 'results' : 'idle');
   const [form, setForm] = useState<FormValues>(DEFAULT_FORM);
   const [showAdvanced, setShowAdvanced] = useState(false);
-  const [result, setResult] = useState<OutlierResultPayload | null>(null);
+  const [result, setResult] = useState<OutlierResultPayload | null>(
+    initialResult ?? null,
+  );
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (initialResult) {
+      setResult(initialResult);
+      setState('results');
+      setErrorMessage(null);
+    }
+  }, [initialResult]);
 
   const updateField = <K extends keyof FormValues>(
     key: K,

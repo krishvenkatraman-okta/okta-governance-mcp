@@ -17,7 +17,7 @@ import ExecutionTracePanel from '@/components/ExecutionTracePanel';
 import DebugDrawer from '@/components/DebugDrawer';
 import ToolExplorer from '@/components/ToolExplorer';
 import GovernanceChecks from '@/components/GovernanceChecks';
-import { InsightsHub } from '@/components/insights';
+import { InsightsHub, type InsightsInitialResult } from '@/components/insights';
 import { uiConfig } from '@/lib/ui-config';
 
 interface TokenState {
@@ -74,6 +74,14 @@ export default function AgentPage() {
   const [showToolExplorer, setShowToolExplorer] = useState(false);
   const [showGovernanceChecks, setShowGovernanceChecks] = useState(false);
   const [showInsights, setShowInsights] = useState(false);
+  // When the chat opens InsightsHub via a ToolResultSummary card, this
+  // slot carries the (tab, output) pair so the hub renders pre-loaded.
+  const [insightsInitialResult, setInsightsInitialResult] =
+    useState<InsightsInitialResult | null>(null);
+  // Bumped every time a new chat-driven result is set so React remounts
+  // InsightsHub. Avoids the "setState in effect" anti-pattern inside
+  // the hub when the parent swaps in a different pre-load.
+  const [insightsKey, setInsightsKey] = useState(0);
 
   // Check token state on mount
   useEffect(() => {
@@ -407,7 +415,13 @@ export default function AgentPage() {
       <main className="flex-1 flex overflow-hidden">
         {/* Chat Interface - Primary */}
         <div className="flex-1 flex flex-col">
-          <ChatInterface />
+          <ChatInterface
+            onOpenInsights={(initial) => {
+              setInsightsInitialResult(initial);
+              setInsightsKey((k) => k + 1);
+              setShowInsights(true);
+            }}
+          />
         </div>
 
         {/* Execution Trace Panel - Right Side */}
@@ -470,7 +484,17 @@ export default function AgentPage() {
       )}
 
       {/* Insights Hub Modal */}
-      {showInsights && <InsightsHub onClose={() => setShowInsights(false)} />}
+      {showInsights && (
+        <InsightsHub
+          key={insightsKey}
+          onClose={() => {
+            setShowInsights(false);
+            setInsightsInitialResult(null);
+          }}
+          initialTab={insightsInitialResult?.tab}
+          initialResult={insightsInitialResult ?? undefined}
+        />
+      )}
     </div>
   );
 }

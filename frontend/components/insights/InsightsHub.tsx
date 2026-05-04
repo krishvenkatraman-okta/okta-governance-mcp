@@ -7,24 +7,58 @@
  *   - Explain (Access Path Tracing)
  *   - Campaigns (Smart Certification Campaigns)
  *
- * This shell wires up the tab navigation and per-tab placeholders. Subsequent
- * prompts replace each placeholder with a real results component that calls
- * its corresponding MCP tool.
+ * The hub also supports two cross-tab navigation flows:
+ *
+ *   1. Risks → Explain deep-link: clicking an outlier cell switches to
+ *      the Explain tab pre-filled with `(userId, targetType, targetId)`.
+ *
+ *   2. Chat → any tab pre-loaded with a tool result. When the chat
+ *      summary card's "View details" button is clicked, the agent page
+ *      passes the parsed tool output via `initialResult` and the
+ *      target tab via `initialTab`. The matching tab component skips
+ *      its own form and renders the results state directly.
  */
 
 'use client';
 
 import { useState } from 'react';
 import { uiConfig } from '@/lib/ui-config';
-import RoleMiningResults from './RoleMiningResults';
-import OutlierReport from './OutlierReport';
-import AccessExplainer from './AccessExplainer';
+import RoleMiningResults, {
+  type MiningResultPayload,
+} from './RoleMiningResults';
+import OutlierReport, { type OutlierResultPayload } from './OutlierReport';
+import AccessExplainer, {
+  type ExplanationResultPayload,
+} from './AccessExplainer';
+import SmartCampaignBuilder, {
+  type SmartCampaignPayload,
+} from './SmartCampaignBuilder';
 
-interface InsightsHubProps {
+export type InsightsTab = 'discover' | 'risks' | 'explain' | 'campaigns';
+
+/**
+ * Discriminated union for chat-driven pre-loads. The tab decides how to
+ * narrow `output` — each variant pairs a tab id with the matching
+ * payload type that tab's results panel expects.
+ */
+export type InsightsInitialResult =
+  | { tab: 'discover'; output: MiningResultPayload }
+  | { tab: 'risks'; output: OutlierResultPayload }
+  | { tab: 'explain'; output: ExplanationResultPayload }
+  | { tab: 'campaigns'; output: SmartCampaignPayload };
+
+export interface InsightsHubProps {
   onClose: () => void;
+  /**
+   * Tab to open initially. Falls back to "discover".
+   */
+  initialTab?: InsightsTab;
+  /**
+   * If provided, the matching tab renders pre-loaded with this output
+   * and skips its form. Used by the chat → details flow.
+   */
+  initialResult?: InsightsInitialResult;
 }
-
-type InsightsTab = 'discover' | 'risks' | 'explain' | 'campaigns';
 
 type ExplainTargetType = 'group' | 'app' | 'entitlement';
 
@@ -38,55 +72,27 @@ interface TabConfig {
   id: InsightsTab;
   icon: string;
   label: string;
-  title: string;
-  description: string;
-  toolName: string;
 }
 
 const TABS: TabConfig[] = [
-  {
-    id: 'discover',
-    icon: '🪙',
-    label: 'Discover',
-    title: 'Discover candidate roles',
-    description:
-      'Cluster users with similar access patterns to surface proposed roles. Run mining on an app, group, department, or the whole org.',
-    toolName: 'mine_candidate_roles',
-  },
-  {
-    id: 'risks',
-    icon: '🛡️',
-    label: 'Risks',
-    title: 'Find entitlement outliers',
-    description:
-      'Flag users whose access deviates from their peer group, with per-entitlement coverage and recommended actions.',
-    toolName: 'detect_entitlement_outliers',
-  },
-  {
-    id: 'explain',
-    icon: '💡',
-    label: 'Explain',
-    title: 'Explain access paths',
-    description:
-      'Trace exactly how a user came to have access to an app, group, or entitlement — with grant dates, granters, and rule expressions.',
-    toolName: 'explain_user_access',
-  },
-  {
-    id: 'campaigns',
-    icon: '📋',
-    label: 'Campaigns',
-    title: 'Build smart certification campaigns',
-    description:
-      'Generate a targeted certification preview scoped to outliers, dormant access, direct assignments, and recent grants.',
-    toolName: 'generate_smart_campaign',
-  },
+  { id: 'discover', icon: '🪙', label: 'Discover' },
+  { id: 'risks', icon: '🛡️', label: 'Risks' },
+  { id: 'explain', icon: '💡', label: 'Explain' },
+  { id: 'campaigns', icon: '📋', label: 'Campaigns' },
 ];
 
-export default function InsightsHub({ onClose }: InsightsHubProps) {
-  const [activeTab, setActiveTab] = useState<InsightsTab>('discover');
+export default function InsightsHub({
+  onClose,
+  initialTab,
+  initialResult,
+}: InsightsHubProps) {
+  // The parent remounts InsightsHub (via a `key` prop) whenever the
+  // chat opens a new pre-loaded result, so initial state captures the
+  // right tab. We don't need a useEffect to react to prop changes.
+  const [activeTab, setActiveTab] = useState<InsightsTab>(
+    initialResult?.tab ?? initialTab ?? 'discover',
+  );
   const [pendingExplain, setPendingExplain] = useState<PendingExplain | null>(null);
-
-  const activeConfig = TABS.find((t) => t.id === activeTab) ?? TABS[0];
 
   const handleExplainAccess = (
     userId: string,
@@ -96,6 +102,15 @@ export default function InsightsHub({ onClose }: InsightsHubProps) {
     setPendingExplain({ userId, targetType, targetId });
     setActiveTab('explain');
   };
+
+  // Per-tab pre-load payload. Only fires when the active tab matches
+  // the pre-load's tab — switching tabs reverts to the form / fresh
+  // state. This mirrors the contract of each tab component's
+  // `initialResult` prop.
+  const tabResultFor = <T extends InsightsTab>(tab: T) =>
+    initialResult && initialResult.tab === tab && activeTab === tab
+      ? (initialResult.output as Extract<InsightsInitialResult, { tab: T }>['output'])
+      : undefined;
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4">
@@ -153,58 +168,27 @@ export default function InsightsHub({ onClose }: InsightsHubProps) {
 
         {/* Tab body */}
         <div className="flex-1 overflow-y-auto">
-          {activeTab === 'discover' && <RoleMiningResults />}
+          {activeTab === 'discover' && (
+            <RoleMiningResults initialResult={tabResultFor('discover')} />
+          )}
           {activeTab === 'risks' && (
-            <OutlierReport onExplainAccess={handleExplainAccess} />
+            <OutlierReport
+              onExplainAccess={handleExplainAccess}
+              initialResult={tabResultFor('risks')}
+            />
           )}
           {activeTab === 'explain' && (
             <AccessExplainer
               initialUserId={pendingExplain?.userId}
               initialTargetType={pendingExplain?.targetType}
               initialTargetId={pendingExplain?.targetId}
+              initialResult={tabResultFor('explain')}
             />
           )}
-          {activeTab === 'campaigns' && <TabPlaceholder config={activeConfig} />}
+          {activeTab === 'campaigns' && (
+            <SmartCampaignBuilder initialResult={tabResultFor('campaigns')} />
+          )}
         </div>
-      </div>
-    </div>
-  );
-}
-
-function TabPlaceholder({ config }: { config: TabConfig }) {
-  return (
-    <div className="flex items-center justify-center h-full min-h-[420px] p-12">
-      <div className="text-center max-w-lg">
-        <div className="text-6xl mb-4" aria-hidden>
-          {config.icon}
-        </div>
-        <h3
-          className="text-xl font-semibold mb-3"
-          style={{ color: uiConfig.colors.gray900 }}
-        >
-          {config.title}
-        </h3>
-        <p className="text-sm mb-2" style={{ color: uiConfig.colors.gray600 }}>
-          {config.description}
-        </p>
-        <p
-          className="text-xs font-mono mb-6"
-          style={{ color: uiConfig.colors.gray600 }}
-        >
-          Tool: {config.toolName}
-        </p>
-        <button
-          type="button"
-          disabled
-          className="px-5 py-2 rounded-lg text-sm font-medium cursor-not-allowed"
-          style={{
-            backgroundColor: uiConfig.colors.gray200,
-            color: uiConfig.colors.gray600,
-          }}
-          title="Coming soon — wired up in the next prompt"
-        >
-          Run analysis
-        </button>
       </div>
     </div>
   );

@@ -52,7 +52,7 @@ interface ExplanationPath {
   narrative: string;
 }
 
-interface ExplanationResultPayload {
+export interface ExplanationResultPayload {
   user: {
     id: string;
     login: string;
@@ -91,21 +91,30 @@ export interface AccessExplainerProps {
   initialUserId?: string;
   initialTargetType?: TargetType;
   initialTargetId?: string;
+  /**
+   * If provided, the component skips the form and renders the results
+   * panel pre-loaded with this payload. Used by the chat integration —
+   * mutually exclusive with the deep-link triple above.
+   */
+  initialResult?: ExplanationResultPayload;
 }
 
 export default function AccessExplainer({
   initialUserId,
   initialTargetType,
   initialTargetId,
+  initialResult,
 }: AccessExplainerProps) {
-  const [state, setState] = useState<RunState>('idle');
+  const [state, setState] = useState<RunState>(initialResult ? 'results' : 'idle');
   const [form, setForm] = useState<FormValues>(() => ({
-    userId: initialUserId ?? '',
-    targetType: initialTargetType ?? 'app',
-    targetId: initialTargetId ?? '',
+    userId: initialResult?.user.login ?? initialUserId ?? '',
+    targetType: initialResult?.target.type ?? initialTargetType ?? 'app',
+    targetId: initialResult?.target.id ?? initialTargetId ?? '',
     entitlementAppId: '',
   }));
-  const [result, setResult] = useState<ExplanationResultPayload | null>(null);
+  const [result, setResult] = useState<ExplanationResultPayload | null>(
+    initialResult ?? null,
+  );
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [showRedundant, setShowRedundant] = useState(false);
 
@@ -204,11 +213,25 @@ export default function AccessExplainer({
     }
   };
 
+  // If the parent swaps in a new initialResult (e.g. chat opens a
+  // different explanation), display it immediately.
+  useEffect(() => {
+    if (initialResult) {
+      setResult(initialResult);
+      setState('results');
+      setErrorMessage(null);
+      setOpenPopover(null);
+      setShowRedundant(false);
+    }
+  }, [initialResult]);
+
   // Auto-run when caller supplies the deep-link triple — but only once
   // per distinct deep-link, and only when we have everything the tool
   // needs (entitlement targets need `entitlementAppId`, which the deep-
-  // link does not carry).
+  // link does not carry). Skipped when an `initialResult` is supplied,
+  // since we already have the answer.
   useEffect(() => {
+    if (initialResult) return;
     if (!initialUserId || !initialTargetType || !initialTargetId) return;
     if (initialTargetType === 'entitlement') return;
 
