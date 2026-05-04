@@ -18,6 +18,7 @@ import { useState } from 'react';
 import { uiConfig } from '@/lib/ui-config';
 import RoleMiningResults from './RoleMiningResults';
 import OutlierReport from './OutlierReport';
+import AccessExplainer from './AccessExplainer';
 
 interface InsightsHubProps {
   onClose: () => void;
@@ -157,59 +158,14 @@ export default function InsightsHub({ onClose }: InsightsHubProps) {
             <OutlierReport onExplainAccess={handleExplainAccess} />
           )}
           {activeTab === 'explain' && (
-            <ExplainPlaceholder pending={pendingExplain} config={activeConfig} />
+            <AccessExplainer
+              initialUserId={pendingExplain?.userId}
+              initialTargetType={pendingExplain?.targetType}
+              initialTargetId={pendingExplain?.targetId}
+            />
           )}
           {activeTab === 'campaigns' && <TabPlaceholder config={activeConfig} />}
         </div>
-      </div>
-    </div>
-  );
-}
-
-function ExplainPlaceholder({
-  pending,
-  config,
-}: {
-  pending: PendingExplain | null;
-  config: TabConfig;
-}) {
-  if (!pending) {
-    return <TabPlaceholder config={config} />;
-  }
-  return (
-    <div className="flex items-center justify-center h-full min-h-[420px] p-12">
-      <div
-        className="rounded-lg border p-6 max-w-xl w-full"
-        style={{
-          borderColor: uiConfig.colors.gray200,
-          backgroundColor: 'white',
-        }}
-      >
-        <div className="text-4xl mb-3" aria-hidden>
-          {config.icon}
-        </div>
-        <h3
-          className="text-lg font-semibold mb-2"
-          style={{ color: uiConfig.colors.gray900 }}
-        >
-          Explain access — pending
-        </h3>
-        <p className="text-sm mb-4" style={{ color: uiConfig.colors.gray600 }}>
-          The Explain tab will be wired up in the next prompt. The Risks tab passed
-          the following deep-link values; once the tab is implemented it will
-          auto-run with these.
-        </p>
-        <dl
-          className="text-sm grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 font-mono"
-          style={{ color: uiConfig.colors.gray700 }}
-        >
-          <dt style={{ color: uiConfig.colors.gray600 }}>userId</dt>
-          <dd>{pending.userId}</dd>
-          <dt style={{ color: uiConfig.colors.gray600 }}>targetType</dt>
-          <dd>{pending.targetType}</dd>
-          <dt style={{ color: uiConfig.colors.gray600 }}>targetId</dt>
-          <dd>{pending.targetId}</dd>
-        </dl>
       </div>
     </div>
   );
