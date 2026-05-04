@@ -6,7 +6,25 @@
 
 import { getServiceAccessToken } from './service-client.js';
 import { config } from '../config/index.js';
-import type { OktaApp } from '../types/index.js';
+import type { OktaApp, OktaUser } from '../types/index.js';
+
+/**
+ * Extract the `next` page URL from an Okta Link header.
+ *
+ * Okta uses RFC 5988 Link headers for cursor-based pagination, e.g.
+ *   Link: <https://.../api/v1/...>; rel="self", <https://.../api/v1/...?after=...>; rel="next"
+ *
+ * Returns the URL inside `rel="next"` if present, otherwise null.
+ */
+function parseNextLink(linkHeader: string | null): string | null {
+  if (!linkHeader) return null;
+  const parts = linkHeader.split(',');
+  for (const part of parts) {
+    const match = part.match(/<([^>]+)>\s*;\s*rel="next"/);
+    if (match) return match[1];
+  }
+  return null;
+}
 
 /**
  * Apps query options
@@ -157,6 +175,69 @@ export const appsClient = {
   filterByIds(apps: OktaApp[], appIds: string[]): OktaApp[] {
     const idSet = new Set(appIds);
     return apps.filter((app) => idSet.has(app.id));
+  },
+
+  /**
+   * List users assigned to a specific application.
+   *
+   * Calls `GET /api/v1/apps/{appId}/users` and follows `Link: rel="next"`
+   * cursors until exhausted (capped at `maxPages` to avoid runaway loops
+   * on enormous apps).
+   *
+   * @param appId - Application ID
+   * @param pageSize - Page size (default 200, Okta max)
+   * @param maxPages - Hard cap on pages walked (default 25)
+   * @returns Users assigned to the app
+   */
+  async listAppUsers(
+    appId: string,
+    pageSize: number = 200,
+    maxPages: number = 25
+  ): Promise<OktaUser[]> {
+    const accessToken = await getServiceAccessToken(['okta.apps.read', 'okta.users.read']);
+
+    let url: string | null = `${config.okta.apiV1}/apps/${appId}/users?limit=${pageSize}`;
+    const collected: OktaUser[] = [];
+    let pages = 0;
+
+    console.debug('[AppsClient] Listing app users:', { appId, pageSize });
+
+    while (url && pages < maxPages) {
+      const response: Response = await fetch(url, {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Accept': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        const error = await response.text();
+        console.error('[AppsClient] Failed to list app users:', {
+          appId,
+          status: response.status,
+          error,
+        });
+        throw new Error(`Failed to list app users: ${response.status} ${response.statusText}`);
+      }
+
+      const page = (await response.json()) as OktaUser[];
+      collected.push(...page);
+      pages++;
+
+      url = parseNextLink(response.headers.get('link'));
+    }
+
+    if (url && pages >= maxPages) {
+      console.warn('[AppsClient] listAppUsers hit maxPages cap:', {
+        appId,
+        maxPages,
+        collected: collected.length,
+      });
+    }
+
+    console.debug(`[AppsClient] Retrieved ${collected.length} users for app ${appId} across ${pages} page(s)`);
+
+    return collected;
   },
 
   /**
