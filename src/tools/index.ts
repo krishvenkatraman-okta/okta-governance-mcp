@@ -30,6 +30,7 @@ import { createDelegatedAccessRequestTool } from './governance/delegated-access-
 import { mineCandidateRolesTool } from './governance/mine-candidate-roles.js';
 import { detectEntitlementOutliersTool } from './governance/detect-entitlement-outliers.js';
 import { explainUserAccessTool } from './governance/explain-user-access.js';
+import { generateSmartCampaignTool } from './governance/generate-smart-campaign.js';
 
 // Stubbed governance tools (authorization checks only)
 import {
@@ -69,6 +70,7 @@ export const allTools: ToolDefinition[] = [
   mineCandidateRolesTool,
   detectEntitlementOutliersTool,
   explainUserAccessTool,
+  generateSmartCampaignTool,
 
   // Stubbed governance tools (authorization enforced, execution pending)
   manageAppEntitlementsTool,
