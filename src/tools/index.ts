@@ -26,6 +26,9 @@ import { manageGroupMembershipTool } from './governance/manage-group-membership.
 import { manageGroupCampaignsTool } from './governance/manage-group-campaigns.js';
 import { createDelegatedAccessRequestTool } from './governance/delegated-access-request.js';
 
+// Advanced analytics tools
+import { mineCandidateRolesTool } from './governance/mine-candidate-roles.js';
+
 // Stubbed governance tools (authorization checks only)
 import {
   manageAppEntitlementsTool,
@@ -59,6 +62,9 @@ export const allTools: ToolDefinition[] = [
   listGroupMembersTool,
   manageGroupMembershipTool,
   manageGroupCampaignsTool,
+
+  // Advanced analytics tools
+  mineCandidateRolesTool,
 
   // Stubbed governance tools (authorization enforced, execution pending)
   manageAppEntitlementsTool,
