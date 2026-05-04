@@ -16,6 +16,7 @@
 
 import { useState } from 'react';
 import { uiConfig } from '@/lib/ui-config';
+import RoleMiningResults from './RoleMiningResults';
 
 interface InsightsHubProps {
   onClose: () => void;
@@ -132,7 +133,11 @@ export default function InsightsHub({ onClose }: InsightsHubProps) {
 
         {/* Tab body */}
         <div className="flex-1 overflow-y-auto">
-          <TabPlaceholder config={activeConfig} />
+          {activeTab === 'discover' ? (
+            <RoleMiningResults />
+          ) : (
+            <TabPlaceholder config={activeConfig} />
+          )}
         </div>
       </div>
     </div>
