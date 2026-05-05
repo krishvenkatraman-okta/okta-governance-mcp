@@ -185,8 +185,17 @@ async function resolveScopeUsers(
   scopeId?: string
 ): Promise<OktaUser[]> {
   switch (scopeType) {
-    case 'app':
-      return appsClient.listAppUsers(scopeId!);
+    case 'app': {
+      // /apps/{id}/users returns AppUser objects whose `profile` is the
+      // app-scoped profile (e.g. role/region for that app), not the user's
+      // global profile. Peer-grouping reads global fields like department
+      // and title, so we expand each AppUser to its full Okta user.
+      const appUsers = await appsClient.listAppUsers(scopeId!);
+      const expanded = await Promise.all(
+        appUsers.map((u) => usersClient.getUserById(u.id)),
+      );
+      return expanded.filter((u) => u !== null) as unknown as OktaUser[];
+    }
     case 'group':
       // groupsClient.listMembers already returns OktaUser[] from shared types.
       return groupsClient.listMembers(scopeId!);
