@@ -194,6 +194,71 @@ export const governanceClient = {
   },
 
   /**
+   * Certification Reviews API
+   */
+  reviews: {
+    /**
+     * List reviews with optional filter
+     * @param filter - OData filter (e.g., 'decision eq "UNREVIEWED"')
+     * @param limit - Max results (default 200)
+     */
+    list: async (filter: string | undefined, limit: number, scopes: string): Promise<any[]> => {
+      const params = new URLSearchParams();
+      if (filter) params.append('filter', filter);
+      if (limit) params.append('limit', String(limit));
+      const query = params.toString() ? `?${params.toString()}` : '';
+      return await governanceRequest(`/governance/api/v1/reviews${query}`, {
+        method: 'GET',
+        scopes,
+      });
+    },
+
+    /**
+     * Get a specific review by ID
+     */
+    getById: async (reviewId: string, scopes: string): Promise<any> => {
+      return await governanceRequest(`/governance/api/v1/reviews/${reviewId}`, {
+        method: 'GET',
+        scopes,
+      });
+    },
+
+    /**
+     * Submit a certification decision using the user's token
+     * This uses the reviewer's own token, not the service app token.
+     */
+    submitDecision: async (
+      campaignId: string,
+      reviewItemId: string,
+      decision: 'APPROVE' | 'REVOKE',
+      note: string | undefined,
+      userToken: string
+    ): Promise<any> => {
+      const url = `${config.okta.governanceApi}/governance/api/v1/campaigns/${campaignId}/reviewItems/${reviewItemId}/me`;
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${userToken}`,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: JSON.stringify({
+          decisions: [{ reviewItemId, decision }],
+          note: note || '',
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.text();
+        throw new Error(`Decision submission failed: ${response.status} ${error}`);
+      }
+
+      return await response.json();
+    },
+  },
+
+  /**
    * Entitlements (placeholder)
    */
   entitlements: {

@@ -26,6 +26,11 @@ import { manageGroupMembershipTool } from './governance/manage-group-membership.
 import { manageGroupCampaignsTool } from './governance/manage-group-campaigns.js';
 import { createDelegatedAccessRequestTool } from './governance/delegated-access-request.js';
 
+// Certification review tools
+import { listMyCertificationReviewsTool } from './governance/list-certification-reviews.js';
+import { getCertificationReviewDetailTool } from './governance/get-certification-review-detail.js';
+import { submitCertificationDecisionTool } from './governance/submit-certification-decision.js';
+
 // Stubbed governance tools (authorization checks only)
 import {
   manageAppEntitlementsTool,
@@ -59,6 +64,11 @@ export const allTools: ToolDefinition[] = [
   listGroupMembersTool,
   manageGroupMembershipTool,
   manageGroupCampaignsTool,
+
+  // Certification review tools
+  listMyCertificationReviewsTool,
+  getCertificationReviewDetailTool,
+  submitCertificationDecisionTool,
 
   // Stubbed governance tools (authorization enforced, execution pending)
   manageAppEntitlementsTool,

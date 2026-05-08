@@ -100,7 +100,9 @@ export async function authenticateRequestWithRouter(token: string): Promise<Auth
     console.log('[TokenRouter] Resolved subject from CUSTOM token:', subject);
 
     // CONVERGENCE POINT: Both paths use same authorization resolver
-    return await resolveAuthorizationContextForSubject(subject, validation.payload);
+    const context = await resolveAuthorizationContextForSubject(subject, validation.payload);
+    if (context) context.userToken = token; // Passthrough for user-scoped API calls
+    return context;
   }
 
   if (tokenType === 'ORG_OR_DEFAULT_AUTH_SERVER') {
@@ -118,7 +120,9 @@ export async function authenticateRequestWithRouter(token: string): Promise<Auth
     console.log('[TokenRouter] Resolved subject from OAuth token:', subject);
 
     // CONVERGENCE POINT: Both paths use same authorization resolver
-    return await resolveAuthorizationContextForSubject(subject, validation.payload);
+    const context = await resolveAuthorizationContextForSubject(subject, validation.payload);
+    if (context) context.userToken = token; // Passthrough for user-scoped API calls
+    return context;
   }
 
   // Unknown token type
