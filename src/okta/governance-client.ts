@@ -214,6 +214,20 @@ export const governanceClient = {
     },
 
     /**
+     * List review items assigned to the current user for a specific campaign
+     * Endpoint: GET /governance/api/v1/campaigns/{campaignId}/reviewItems/me
+     */
+    listMyReviewItems: async (campaignId: string, limit: number, scopes: string): Promise<any> => {
+      const params = new URLSearchParams();
+      if (limit) params.append('limit', String(limit));
+      const query = params.toString() ? `?${params.toString()}` : '';
+      return await governanceRequest(`/governance/api/v1/campaigns/${campaignId}/reviewItems/me${query}`, {
+        method: 'GET',
+        scopes,
+      });
+    },
+
+    /**
      * Get a specific review by ID
      */
     getById: async (reviewId: string, scopes: string): Promise<any> => {
