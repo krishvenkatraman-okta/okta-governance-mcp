@@ -27,21 +27,14 @@ async function handler(
     return createErrorResponse('Missing required argument: reviewId');
   }
 
-  // This endpoint requires the user's own token
-  if (!context.userToken) {
-    return createErrorResponse(
-      'User token not available. The review detail endpoint requires the reviewer\'s own access token. ' +
-      'Ensure you are authenticated with a user token (not just a service token).'
-    );
-  }
-
   console.log('[GetCertReviewDetail] Executing:', {
     subject: context.subject,
     reviewId,
   });
 
   try {
-    const review = await governanceClient.reviews.getById(reviewId, SCOPES, context.userToken);
+    // Use service app token (with ACCESS_CERTIFICATIONS_ADMIN role) for reads
+    const review = await governanceClient.reviews.getById(reviewId, SCOPES);
 
     // Verify the authenticated user is a reviewer on this item
     const isReviewer =

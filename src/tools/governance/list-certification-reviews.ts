@@ -36,14 +36,6 @@ async function handler(
     limit,
   });
 
-  // This endpoint requires the user's own token — it returns reviews scoped to the caller
-  if (!context.userToken) {
-    return createErrorResponse(
-      'User token not available. The certification reviews endpoint requires the reviewer\'s own access token. ' +
-      'Ensure you are authenticated with a user token (not just a service token).'
-    );
-  }
-
   try {
     // Build filter — always filter by decision status
     let filter = `decision eq "${status}"`;
@@ -51,7 +43,8 @@ async function handler(
       filter += ` and campaignId eq "${campaignId}"`;
     }
 
-    const reviews = await governanceClient.reviews.list(filter, limit, SCOPES, context.userToken);
+    // Use service app token (with ACCESS_CERTIFICATIONS_ADMIN role) for reads
+    const reviews = await governanceClient.reviews.list(filter, limit, SCOPES);
 
     // Normalize response — API may return array or {data: [...]}
     const items = Array.isArray(reviews) ? reviews : (reviews as any).data || [reviews];
