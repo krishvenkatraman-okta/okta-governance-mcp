@@ -50,10 +50,13 @@ async function handler(
     const items = Array.isArray(reviews) ? reviews : (reviews as any).data || [reviews];
 
     // Filter to only reviews assigned to the current user
+    // context.subject may be the user's login/email (from custom auth server sub claim)
+    // or the Okta user ID, so check both ID and email fields
     const myReviews = items.filter((r: any) => {
-      // Check if user is the reviewer at any level
-      if (r.reviewerProfile?.id === context.subject) return true;
-      if (r.allReviewerLevels?.some((l: any) => l.reviewerProfile?.id === context.subject)) return true;
+      const matchesReviewer = (profile: any) =>
+        profile?.id === context.subject || profile?.email === context.subject;
+      if (matchesReviewer(r.reviewerProfile)) return true;
+      if (r.allReviewerLevels?.some((l: any) => matchesReviewer(l.reviewerProfile))) return true;
       return false;
     });
 

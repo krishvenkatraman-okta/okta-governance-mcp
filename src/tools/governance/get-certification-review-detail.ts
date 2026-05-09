@@ -37,9 +37,12 @@ async function handler(
     const review = await governanceClient.reviews.getById(reviewId, SCOPES);
 
     // Verify the authenticated user is a reviewer on this item
+    // context.subject may be login/email or Okta user ID, so check both
+    const matchesUser = (profile: any) =>
+      profile?.id === context.subject || profile?.email === context.subject;
     const isReviewer =
-      review.reviewerProfile?.id === context.subject ||
-      review.allReviewerLevels?.some((l: any) => l.reviewerProfile?.id === context.subject);
+      matchesUser(review.reviewerProfile) ||
+      review.allReviewerLevels?.some((l: any) => matchesUser(l.reviewerProfile));
 
     if (!isReviewer && !context.roles.superAdmin && !context.roles.orgAdmin) {
       return createErrorResponse(
