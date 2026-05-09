@@ -246,20 +246,27 @@ export const governanceClient = {
     },
 
     /**
-     * Submit a certification decision using the user's token
-     * This uses the reviewer's own token, not the service app token.
+     * Submit a certification decision using the user's token.
+     *
+     * Uses the end-user Governance API at /api/v1/governance/ (not /governance/api/v1/).
+     * This is the same endpoint the Access Certification Reviews UI calls.
+     * Requires a user token from the Org Authorization Server with
+     * okta.governance.reviewer.manage scope.
      */
     submitDecision: async (
       campaignId: string,
       reviewItemId: string,
       decision: 'APPROVE' | 'REVOKE',
+      reviewerLevelId: string,
       note: string | undefined,
       userToken: string
     ): Promise<any> => {
-      const url = `${config.okta.governanceApi}/campaigns/${campaignId}/reviewItems/${reviewItemId}/me`;
+      // The decision endpoint uses /api/v1/governance/ (end-user path),
+      // NOT /governance/api/v1/ (admin path used by the service app)
+      const url = `${config.okta.orgUrl}/api/v1/governance/campaigns/${campaignId}/reviewItems/me`;
 
       const response = await fetch(url, {
-        method: 'POST',
+        method: 'PUT',
         headers: {
           'Authorization': `Bearer ${userToken}`,
           'Content-Type': 'application/json',
@@ -267,6 +274,7 @@ export const governanceClient = {
         },
         body: JSON.stringify({
           decisions: [{ reviewItemId, decision }],
+          reviewerLevelId,
           note: note || '',
         }),
       });

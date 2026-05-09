@@ -15,6 +15,7 @@ interface SubmitDecisionArgs {
   campaignId: string;
   reviewItemId: string;
   decision: 'APPROVE' | 'REVOKE';
+  reviewerLevelId?: string;
   note?: string;
 }
 
@@ -26,6 +27,7 @@ async function handler(
     campaignId,
     reviewItemId,
     decision,
+    reviewerLevelId = 'ONE',
     note,
   } = args as Partial<SubmitDecisionArgs>;
 
@@ -53,6 +55,7 @@ async function handler(
     campaignId,
     reviewItemId,
     decision,
+    reviewerLevelId,
     hasNote: !!note,
   });
 
@@ -61,6 +64,7 @@ async function handler(
       campaignId,
       reviewItemId,
       decision,
+      reviewerLevelId,
       note,
       context.userToken
     );
@@ -130,6 +134,10 @@ export const submitCertificationDecisionTool: ToolDefinition = {
           type: 'string',
           enum: ['APPROVE', 'REVOKE'],
           description: 'The decision: APPROVE to keep access, REVOKE to remove access.',
+        },
+        reviewerLevelId: {
+          type: 'string',
+          description: 'The reviewer level ID for multi-level campaigns. Default: "ONE" (first level). Use the currReviewerLevel from the review detail.',
         },
         note: {
           type: 'string',
