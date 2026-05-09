@@ -16,9 +16,11 @@ async function governanceRequest<T>(
     method?: string;
     body?: unknown;
     scopes: string;
+    /** Pass a user token to call the API as the authenticated user instead of the service app */
+    token?: string;
   }
 ): Promise<T> {
-  const accessToken = await getServiceAccessToken(options.scopes);
+  const accessToken = options.token || await getServiceAccessToken(options.scopes);
   const url = `${config.okta.governanceApi}${endpoint}`;
 
   const response = await fetch(url, {
@@ -198,11 +200,12 @@ export const governanceClient = {
    */
   reviews: {
     /**
-     * List reviews with optional filter
+     * List reviews with optional filter (requires user token)
      * @param filter - OData filter (e.g., 'decision eq "UNREVIEWED"')
      * @param limit - Max results (default 200)
+     * @param userToken - The authenticated user's access token
      */
-    list: async (filter: string | undefined, limit: number, scopes: string): Promise<any[]> => {
+    list: async (filter: string | undefined, limit: number, scopes: string, userToken?: string): Promise<any[]> => {
       const params = new URLSearchParams();
       if (filter) params.append('filter', filter);
       if (limit) params.append('limit', String(limit));
@@ -210,30 +213,35 @@ export const governanceClient = {
       return await governanceRequest(`/reviews${query}`, {
         method: 'GET',
         scopes,
+        token: userToken,
       });
     },
 
     /**
      * List review items assigned to the current user for a specific campaign
      * Endpoint: GET /governance/api/v1/campaigns/{campaignId}/reviewItems/me
+     * @param userToken - The authenticated user's access token
      */
-    listMyReviewItems: async (campaignId: string, limit: number, scopes: string): Promise<any> => {
+    listMyReviewItems: async (campaignId: string, limit: number, scopes: string, userToken?: string): Promise<any> => {
       const params = new URLSearchParams();
       if (limit) params.append('limit', String(limit));
       const query = params.toString() ? `?${params.toString()}` : '';
       return await governanceRequest(`/campaigns/${campaignId}/reviewItems/me${query}`, {
         method: 'GET',
         scopes,
+        token: userToken,
       });
     },
 
     /**
-     * Get a specific review by ID
+     * Get a specific review by ID (requires user token)
+     * @param userToken - The authenticated user's access token
      */
-    getById: async (reviewId: string, scopes: string): Promise<any> => {
+    getById: async (reviewId: string, scopes: string, userToken?: string): Promise<any> => {
       return await governanceRequest(`/reviews/${reviewId}`, {
         method: 'GET',
         scopes,
+        token: userToken,
       });
     },
 
