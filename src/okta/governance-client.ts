@@ -58,7 +58,7 @@ export const governanceClient = {
      * List all campaigns
      */
     list: async (scopes: string): Promise<any[]> => {
-      return await governanceRequest('/governance/api/v1/campaigns', {
+      return await governanceRequest('/campaigns', {
         method: 'GET',
         scopes,
       });
@@ -68,7 +68,7 @@ export const governanceClient = {
      * Create a campaign
      */
     create: async (data: any, scopes: string): Promise<any> => {
-      return await governanceRequest('/governance/api/v1/campaigns', {
+      return await governanceRequest('/campaigns', {
         method: 'POST',
         body: data,
         scopes,
@@ -79,7 +79,7 @@ export const governanceClient = {
      * Get campaign by ID
      */
     getById: async (campaignId: string, scopes: string): Promise<any> => {
-      return await governanceRequest(`/governance/api/v1/campaigns/${campaignId}`, {
+      return await governanceRequest(`/campaigns/${campaignId}`, {
         method: 'GET',
         scopes,
       });
@@ -89,7 +89,7 @@ export const governanceClient = {
      * Launch a campaign
      */
     launch: async (campaignId: string, scopes: string): Promise<any> => {
-      return await governanceRequest(`/governance/api/v1/campaigns/${campaignId}/launch`, {
+      return await governanceRequest(`/campaigns/${campaignId}/launch`, {
         method: 'POST',
         scopes,
       });
@@ -99,7 +99,7 @@ export const governanceClient = {
      * End a campaign
      */
     end: async (campaignId: string, scopes: string): Promise<any> => {
-      return await governanceRequest(`/governance/api/v1/campaigns/${campaignId}/end`, {
+      return await governanceRequest(`/campaigns/${campaignId}/end`, {
         method: 'POST',
         scopes,
       });
@@ -109,7 +109,7 @@ export const governanceClient = {
      * Delete a campaign
      */
     delete: async (campaignId: string, scopes: string): Promise<void> => {
-      await governanceRequest(`/governance/api/v1/campaigns/${campaignId}`, {
+      await governanceRequest(`/campaigns/${campaignId}`, {
         method: 'DELETE',
         scopes,
       });
@@ -134,7 +134,7 @@ export const governanceClient = {
      * List all labels
      */
     list: async (scopes: string): Promise<any> => {
-      return await governanceRequest('/governance/api/v1/labels', {
+      return await governanceRequest('/labels', {
         method: 'GET',
         scopes,
       });
@@ -144,7 +144,7 @@ export const governanceClient = {
      * Create a label
      */
     create: async (data: { name: string; description?: string }, scopes: string): Promise<any> => {
-      return await governanceRequest('/governance/api/v1/labels', {
+      return await governanceRequest('/labels', {
         method: 'POST',
         body: data,
         scopes,
@@ -155,7 +155,7 @@ export const governanceClient = {
      * Get label by ID
      */
     getById: async (labelId: string, scopes: string): Promise<any> => {
-      return await governanceRequest(`/governance/api/v1/labels/${labelId}`, {
+      return await governanceRequest(`/labels/${labelId}`, {
         method: 'GET',
         scopes,
       });
@@ -165,7 +165,7 @@ export const governanceClient = {
      * Assign label to resource
      */
     assign: async (labelId: string, data: { resourceId: string; resourceType: string }, scopes: string): Promise<any> => {
-      return await governanceRequest(`/governance/api/v1/labels/${labelId}/assignments`, {
+      return await governanceRequest(`/labels/${labelId}/assignments`, {
         method: 'POST',
         body: data,
         scopes,
@@ -176,7 +176,7 @@ export const governanceClient = {
      * Remove label from resource
      */
     unassign: async (labelId: string, resourceId: string, scopes: string): Promise<any> => {
-      return await governanceRequest(`/governance/api/v1/labels/${labelId}/assignments/${resourceId}`, {
+      return await governanceRequest(`/labels/${labelId}/assignments/${resourceId}`, {
         method: 'DELETE',
         scopes,
       });
@@ -186,7 +186,7 @@ export const governanceClient = {
      * Get labels assigned to a resource
      */
     getResourceLabels: async (resourceId: string, resourceType: string, scopes: string): Promise<any> => {
-      return await governanceRequest(`/governance/api/v1/resources/${resourceId}/labels?resourceType=${resourceType}`, {
+      return await governanceRequest(`/resources/${resourceId}/labels?resourceType=${resourceType}`, {
         method: 'GET',
         scopes,
       });
@@ -207,7 +207,7 @@ export const governanceClient = {
       if (filter) params.append('filter', filter);
       if (limit) params.append('limit', String(limit));
       const query = params.toString() ? `?${params.toString()}` : '';
-      return await governanceRequest(`/governance/api/v1/reviews${query}`, {
+      return await governanceRequest(`/reviews${query}`, {
         method: 'GET',
         scopes,
       });
@@ -221,7 +221,7 @@ export const governanceClient = {
       const params = new URLSearchParams();
       if (limit) params.append('limit', String(limit));
       const query = params.toString() ? `?${params.toString()}` : '';
-      return await governanceRequest(`/governance/api/v1/campaigns/${campaignId}/reviewItems/me${query}`, {
+      return await governanceRequest(`/campaigns/${campaignId}/reviewItems/me${query}`, {
         method: 'GET',
         scopes,
       });
@@ -231,7 +231,7 @@ export const governanceClient = {
      * Get a specific review by ID
      */
     getById: async (reviewId: string, scopes: string): Promise<any> => {
-      return await governanceRequest(`/governance/api/v1/reviews/${reviewId}`, {
+      return await governanceRequest(`/reviews/${reviewId}`, {
         method: 'GET',
         scopes,
       });
@@ -248,7 +248,7 @@ export const governanceClient = {
       note: string | undefined,
       userToken: string
     ): Promise<any> => {
-      const url = `${config.okta.governanceApi}/governance/api/v1/campaigns/${campaignId}/reviewItems/${reviewItemId}/me`;
+      const url = `${config.okta.governanceApi}/campaigns/${campaignId}/reviewItems/${reviewItemId}/me`;
 
       const response = await fetch(url, {
         method: 'POST',
