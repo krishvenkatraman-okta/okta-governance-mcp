@@ -59,8 +59,13 @@ export function getProtectedResourceMetadata(): ProtectedResourceMetadata {
   const baseUrl = config.http?.baseUrl || 'https://okta-governance-mcp.onrender.com';
   const resourceIdentifier = `${baseUrl}/mcp`;
 
-  // Where OAuth clients should get access tokens (Okta ORG auth server)
-  const authorizationServers = [config.okta.oauth.issuer];
+  // Where OAuth clients should get access tokens
+  // List both the custom auth server (for MCP protocol auth) and the
+  // Org auth server (for Okta Governance API — required for decision submission).
+  // The Org auth server is listed first as the primary/preferred auth server.
+  const orgAuthServer = `https://${config.okta.domain}`;
+  const customAuthServer = config.okta.oauth.issuer;
+  const authorizationServers = [orgAuthServer, customAuthServer];
 
   // Documentation URL
   const resourceDocumentation = config.resource?.documentation || `${baseUrl}/docs`;
