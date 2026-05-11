@@ -123,15 +123,71 @@ Playwright scripts for headless device authorization flow with TOTP:
 - `scripts/device_auth_playwright.py` — Full device auth flow
 - `scripts/enroll_totp_factor.py` — TOTP factor enrollment
 
+## Completed: Adapter Integration (2026-05-11)
+
+### Token Flow (Working End-to-End)
+
+The adapter uses the Okta XAA (Cross-App Access) ID-JAG token exchange:
+1. User authenticates to adapter via Okta Org Auth Server (OIDC)
+2. Adapter exchanges user's ID token → ID-JAG (Step 1+2, Org AS)
+3. Adapter exchanges ID-JAG → resource-specific token (Step 3, custom AS `aus22zgxiud01vsii1d8`)
+4. Adapter forwards resource token to governance MCP server
+5. MCP server validates token, resolves user identity, executes tools
+
+**Chain of evidence preserved**: The token carries the actual human reviewer's identity (`sub` claim) through the entire flow. Okta system log shows the real user for every action.
+
+### Critical Setup Requirements
+
+From debugging + lessons learned from `joevanhorn/okta-mcp-demo`:
+
+1. **JWT Bearer grant type on auth server** — The XAA Step 3 uses `urn:ietf:params:oauth:grant-type:jwt-bearer`, NOT `token-exchange`. Must have a dedicated policy rule:
+   ```
+   Rule: "JWT Bearer Exchange (XAA Step 3)"
+   Grant types: [urn:ietf:params:oauth:grant-type:jwt-bearer]
+   Scopes: [*]
+   ```
+   **Without this**: `access_denied: Policy evaluation failed` on Step 3.
+
+2. **`mcp:read` scope on auth server** — The adapter requests `mcp:read` as default scope. Must exist on the custom auth server AND in the policy rule.
+
+3. **Managed Connection on AI Agent** — Custom auth server connection type (`IDENTITY_ASSERTION_CUSTOM_AS`) pointing to the governance auth server, with resource indicator `api://mcp-governance`.
+
+4. **Resource in adapter with matching `resource_id`** — Must equal the auth server ID (`aus22zgxiud01vsii1d8`), not a UUID.
+
+5. **Resource config metadata** — The adapter resource needs `config.connection_id`, `config.connection_type`, `config.metadata` (issuer_url, resource_indicator, authorization_server_orn) to be fully hydrated. Use the Admin UI "Import from Okta" flow to populate these.
+
+6. **Linkage record** — Links agent + connection + resource in the adapter DB. Created by the syncer or manually via `/api/admin/linkages`.
+
+### Adapter Resource Configuration
+
+| Field | Value |
+|-------|-------|
+| name | `okta-governance` |
+| resource_id | `aus22zgxiud01vsii1d8` |
+| mcp_url | `https://governance-mcp.supersafe-ai.io/mcp` |
+| auth_method | `okta-cross-app` |
+| connection_id | `mcn230l4wb1i8kpro1d8` |
+| source | `okta` (after import) |
+
+### Okta Configuration
+
+| Component | ID |
+|-----------|-----|
+| AI Agent (Product Intelligence) | `wlp22ckv04ag0130Q1d8` |
+| AI Agent App | `0oa22ckrun7qkth0Y1d8` |
+| Governance Auth Server | `aus22zgxiud01vsii1d8` |
+| Managed Connection (Custom AS) | `mcn230l4wb1i8kpro1d8` |
+| Managed Connection (MCP Server) | `mcn230kq0pjcVRLWm1d8` |
+| MCP Server (UD entry) | `ems230kt10nABNER91d8` |
+
 ## Next Steps
 
-1. **Token passthrough for decisions**: The MCP server currently validates incoming tokens from the custom auth server. For decision submission, it needs the user's Org Auth Server token. Options:
-   - Token exchange (RFC 8693) on the Org Auth Server
-   - Dual token flow: user authenticates against both auth servers
-   - MCP adapter handles the Org Auth Server token separately
+1. **Switch list tool to end-user API** — Use `GET /api/v1/governance/campaigns/{id}/reviewItems/me` instead of admin API + client-side filtering. Pre-filtered to reviewer, includes rich contextual data.
 
-2. **Build internal API spec**: Document the undocumented `/api/v1/governance/` endpoints (review items, decisions) and store in the taskvantage GitOps repo
+2. **Add pagination** — End-user API supports `after` cursor. Current tool caps at 200 results.
 
-3. **MCP adapter integration**: Connect the governance MCP server through the adapter and test with Claude Code on a machine with a browser
+3. **Test decision submission via adapter** — The token from XAA Step 3 is a custom auth server token, but the decision endpoint needs an Org AS token. Need to verify if the MCP server can use its service app for reads while the adapter token handles user identity.
 
-4. **Rich review data**: The `/api/v1/governance/campaigns/{id}/reviewItems/me` endpoint returns incredibly rich data including AI recommendations, risk scores, entitlement details, and group membership context — leverage this for the agent's decision analysis
+4. **Rich review data** — The `/api/v1/governance/campaigns/{id}/reviewItems/me` endpoint returns AI recommendations, risk scores, entitlement details, and group membership context — leverage this for the agent's decision analysis.
+
+5. **Internal API spec** — Completed at `ofcto-workforce-taskvantage/docs/okta-governance-internal-api.yaml` (OpenAPI 3.1, 9 endpoints, 11 schemas).
