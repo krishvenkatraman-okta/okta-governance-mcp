@@ -146,7 +146,7 @@ async function handler(
     // Summarize by reviewer level
     const byLevel: Record<string, number> = {};
     for (const item of simplified) {
-      const level = item.currentItemLevel || 'UNKNOWN';
+      const level = item.reviewerLevel || 'UNKNOWN';
       byLevel[level] = (byLevel[level] || 0) + 1;
     }
 
