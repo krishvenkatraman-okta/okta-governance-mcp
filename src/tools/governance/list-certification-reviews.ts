@@ -26,7 +26,7 @@ async function handler(
   const {
     campaignId,
     status = 'UNREVIEWED',
-    limit = 50,
+    limit = 200,
     search,
     sortBy,
   } = args as Partial<ListCertReviewsArgs>;
@@ -75,9 +75,8 @@ async function handler(
           assignedLevels: c.assignedReviewerLevels,
           dueDate: c.endDateForReviewerLevel || c.endTime,
         })),
-        note: 'Multi-level campaigns have separate reviewer levels. ' +
-          'Items at currReviewerLevel matching your level are ready for YOUR review. ' +
-          'Items at a different level are waiting for another reviewer at that level.',
+        note: 'Use a campaignId to see all review items assigned to you in that campaign. ' +
+          'All returned items are ready for your action regardless of their reviewer level.',
       });
     }
 
@@ -92,17 +91,13 @@ async function handler(
     const reviewItems = Array.isArray(items) ? items : [];
 
     // Simplify for the LLM — include the rich contextual data
+    // IMPORTANT: Every item returned by this API is assigned to the authenticated
+    // reviewer and ready for their action. The API pre-filters to the reviewer.
     const simplified = reviewItems.map((r: any) => ({
       reviewItemId: r.id,
       campaignId: r.campaignId,
       decision: r.decision,
-      currentItemLevel: r.currReviewerLevel,
-      readyForYourReview: r.decision === 'UNREVIEWED',
-      levelNote: r.currReviewerLevel === 'ONE'
-        ? 'Level 1 review (manager review) — ready for your action'
-        : r.currReviewerLevel === 'TWO'
-          ? 'Level 2 review (resource owner review) — Level 1 was already approved'
-          : `Level ${r.currReviewerLevel} review`,
+      reviewerLevel: r.currReviewerLevel,
 
       // Who is being reviewed
       principal: {
@@ -159,10 +154,10 @@ async function handler(
       totalItems: simplified.length,
       itemsByLevel: byLevel,
       filter: { status, campaignId, search: search || null },
-      note: 'Items are shown at their CURRENT reviewer level. ' +
-        'All items returned are assigned to you for review at their respective levels. ' +
-        'Level ONE items are first-level (manager) reviews. ' +
-        'Level TWO items already passed Level 1 and are now at resource-owner review.',
+      note: 'IMPORTANT: Every item returned here is assigned to YOU and ready for your review action. ' +
+        'The API only returns items where you are the current reviewer. ' +
+        'Items may be at different reviewer levels (ONE=manager review, TWO=resource owner review) ' +
+        'but ALL of them need YOUR decision.',
       reviewItems: simplified,
     });
   } catch (error) {
