@@ -63,7 +63,7 @@ async function handler(
         });
       }
 
-      // Return campaign list with summary counts
+      // Return campaign list with summary counts and reviewer level context
       return createJsonResponse({
         message: `You have ${campaignList.length} active campaign(s). Specify a campaignId to see review items.`,
         campaigns: campaignList.map((c: any) => ({
@@ -71,9 +71,13 @@ async function handler(
           name: c.template?.name || 'Unknown',
           status: c.status,
           summary: c.campaignSummary,
-          reviewerLevel: c.reviewerLevelOfReviewer,
+          yourReviewerLevel: c.reviewerLevelOfReviewer,
+          assignedLevels: c.assignedReviewerLevels,
           dueDate: c.endDateForReviewerLevel || c.endTime,
         })),
+        note: 'Multi-level campaigns have separate reviewer levels. ' +
+          'Items at currReviewerLevel matching your level are ready for YOUR review. ' +
+          'Items at a different level are waiting for another reviewer at that level.',
       });
     }
 
@@ -92,7 +96,13 @@ async function handler(
       reviewItemId: r.id,
       campaignId: r.campaignId,
       decision: r.decision,
-      reviewerLevel: r.currReviewerLevel,
+      currentItemLevel: r.currReviewerLevel,
+      readyForYourReview: r.decision === 'UNREVIEWED',
+      levelNote: r.currReviewerLevel === 'ONE'
+        ? 'Level 1 review (manager review) — ready for your action'
+        : r.currReviewerLevel === 'TWO'
+          ? 'Level 2 review (resource owner review) — Level 1 was already approved'
+          : `Level ${r.currReviewerLevel} review`,
 
       // Who is being reviewed
       principal: {
@@ -138,9 +148,21 @@ async function handler(
       sodConflicts: r.sodConflicts?.length || 0,
     }));
 
+    // Summarize by reviewer level
+    const byLevel: Record<string, number> = {};
+    for (const item of simplified) {
+      const level = item.currentItemLevel || 'UNKNOWN';
+      byLevel[level] = (byLevel[level] || 0) + 1;
+    }
+
     return createJsonResponse({
       totalItems: simplified.length,
+      itemsByLevel: byLevel,
       filter: { status, campaignId, search: search || null },
+      note: 'Items are shown at their CURRENT reviewer level. ' +
+        'All items returned are assigned to you for review at their respective levels. ' +
+        'Level ONE items are first-level (manager) reviews. ' +
+        'Level TWO items already passed Level 1 and are now at resource-owner review.',
       reviewItems: simplified,
     });
   } catch (error) {
