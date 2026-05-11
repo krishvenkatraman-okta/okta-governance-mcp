@@ -32,6 +32,11 @@ import { detectEntitlementOutliersTool } from './governance/detect-entitlement-o
 import { explainUserAccessTool } from './governance/explain-user-access.js';
 import { generateSmartCampaignTool } from './governance/generate-smart-campaign.js';
 
+// Certification review tools
+import { listMyCertificationReviewsTool } from './governance/list-certification-reviews.js';
+import { getCertificationReviewDetailTool } from './governance/get-certification-review-detail.js';
+import { submitCertificationDecisionTool } from './governance/submit-certification-decision.js';
+
 // Stubbed governance tools (authorization checks only)
 import {
   manageAppEntitlementsTool,
@@ -71,6 +76,11 @@ export const allTools: ToolDefinition[] = [
   detectEntitlementOutliersTool,
   explainUserAccessTool,
   generateSmartCampaignTool,
+
+  // Certification review tools
+  listMyCertificationReviewsTool,
+  getCertificationReviewDetailTool,
+  submitCertificationDecisionTool,
 
   // Stubbed governance tools (authorization enforced, execution pending)
   manageAppEntitlementsTool,

@@ -1,14 +1,17 @@
 /**
  * Okta Governance API client
  *
- * Provides methods for interacting with Okta Governance APIs
+ * Two API surfaces:
+ * - Admin API (/governance/api/v1/) — service app token, bulk operations
+ * - End-user API (/api/v1/governance/) — user's Org AS token, reviewer-scoped
  */
 
 import { getServiceAccessToken } from './service-client.js';
 import { config } from '../config/index.js';
 
 /**
- * Base governance API request
+ * Admin governance API request (/governance/api/v1/)
+ * Uses service app token by default; can override with user token.
  */
 async function governanceRequest<T>(
   endpoint: string,
@@ -16,9 +19,11 @@ async function governanceRequest<T>(
     method?: string;
     body?: unknown;
     scopes: string;
+    /** Pass a user token to call the API as the authenticated user instead of the service app */
+    token?: string;
   }
 ): Promise<T> {
-  const accessToken = await getServiceAccessToken(options.scopes);
+  const accessToken = options.token || await getServiceAccessToken(options.scopes);
   const url = `${config.okta.governanceApi}${endpoint}`;
 
   const response = await fetch(url, {
@@ -34,6 +39,39 @@ async function governanceRequest<T>(
   if (!response.ok) {
     const error = await response.text();
     throw new Error(`Governance API request failed: ${response.status} ${error}`);
+  }
+
+  return await response.json() as T;
+}
+
+/**
+ * End-user governance API request (/api/v1/governance/)
+ * Requires the user's Org Authorization Server token.
+ * This is the same API surface the Access Certification Reviews UI uses.
+ */
+async function endUserGovernanceRequest<T>(
+  endpoint: string,
+  userToken: string,
+  options: {
+    method?: string;
+    body?: unknown;
+  } = {}
+): Promise<T> {
+  const url = `${config.okta.orgUrl}/api/v1/governance${endpoint}`;
+
+  const response = await fetch(url, {
+    method: options.method || 'GET',
+    headers: {
+      'Authorization': `Bearer ${userToken}`,
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+    },
+    body: options.body ? JSON.stringify(options.body) : undefined,
+  });
+
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`End-user Governance API failed: ${response.status} ${error}`);
   }
 
   return await response.json() as T;
@@ -58,7 +96,7 @@ export const governanceClient = {
      * List all campaigns
      */
     list: async (scopes: string): Promise<any[]> => {
-      return await governanceRequest('/governance/api/v1/campaigns', {
+      return await governanceRequest('/campaigns', {
         method: 'GET',
         scopes,
       });
@@ -68,7 +106,7 @@ export const governanceClient = {
      * Create a campaign
      */
     create: async (data: any, scopes: string): Promise<any> => {
-      return await governanceRequest('/governance/api/v1/campaigns', {
+      return await governanceRequest('/campaigns', {
         method: 'POST',
         body: data,
         scopes,
@@ -79,7 +117,7 @@ export const governanceClient = {
      * Get campaign by ID
      */
     getById: async (campaignId: string, scopes: string): Promise<any> => {
-      return await governanceRequest(`/governance/api/v1/campaigns/${campaignId}`, {
+      return await governanceRequest(`/campaigns/${campaignId}`, {
         method: 'GET',
         scopes,
       });
@@ -89,7 +127,7 @@ export const governanceClient = {
      * Launch a campaign
      */
     launch: async (campaignId: string, scopes: string): Promise<any> => {
-      return await governanceRequest(`/governance/api/v1/campaigns/${campaignId}/launch`, {
+      return await governanceRequest(`/campaigns/${campaignId}/launch`, {
         method: 'POST',
         scopes,
       });
@@ -99,7 +137,7 @@ export const governanceClient = {
      * End a campaign
      */
     end: async (campaignId: string, scopes: string): Promise<any> => {
-      return await governanceRequest(`/governance/api/v1/campaigns/${campaignId}/end`, {
+      return await governanceRequest(`/campaigns/${campaignId}/end`, {
         method: 'POST',
         scopes,
       });
@@ -109,7 +147,7 @@ export const governanceClient = {
      * Delete a campaign
      */
     delete: async (campaignId: string, scopes: string): Promise<void> => {
-      await governanceRequest(`/governance/api/v1/campaigns/${campaignId}`, {
+      await governanceRequest(`/campaigns/${campaignId}`, {
         method: 'DELETE',
         scopes,
       });
@@ -134,7 +172,7 @@ export const governanceClient = {
      * List all labels
      */
     list: async (scopes: string): Promise<any> => {
-      return await governanceRequest('/governance/api/v1/labels', {
+      return await governanceRequest('/labels', {
         method: 'GET',
         scopes,
       });
@@ -144,7 +182,7 @@ export const governanceClient = {
      * Create a label
      */
     create: async (data: { name: string; description?: string }, scopes: string): Promise<any> => {
-      return await governanceRequest('/governance/api/v1/labels', {
+      return await governanceRequest('/labels', {
         method: 'POST',
         body: data,
         scopes,
@@ -155,7 +193,7 @@ export const governanceClient = {
      * Get label by ID
      */
     getById: async (labelId: string, scopes: string): Promise<any> => {
-      return await governanceRequest(`/governance/api/v1/labels/${labelId}`, {
+      return await governanceRequest(`/labels/${labelId}`, {
         method: 'GET',
         scopes,
       });
@@ -165,7 +203,7 @@ export const governanceClient = {
      * Assign label to resource
      */
     assign: async (labelId: string, data: { resourceId: string; resourceType: string }, scopes: string): Promise<any> => {
-      return await governanceRequest(`/governance/api/v1/labels/${labelId}/assignments`, {
+      return await governanceRequest(`/labels/${labelId}/assignments`, {
         method: 'POST',
         body: data,
         scopes,
@@ -176,7 +214,7 @@ export const governanceClient = {
      * Remove label from resource
      */
     unassign: async (labelId: string, resourceId: string, scopes: string): Promise<any> => {
-      return await governanceRequest(`/governance/api/v1/labels/${labelId}/assignments/${resourceId}`, {
+      return await governanceRequest(`/labels/${labelId}/assignments/${resourceId}`, {
         method: 'DELETE',
         scopes,
       });
@@ -186,7 +224,110 @@ export const governanceClient = {
      * Get labels assigned to a resource
      */
     getResourceLabels: async (resourceId: string, resourceType: string, scopes: string): Promise<any> => {
-      return await governanceRequest(`/governance/api/v1/resources/${resourceId}/labels?resourceType=${resourceType}`, {
+      return await governanceRequest(`/resources/${resourceId}/labels?resourceType=${resourceType}`, {
+        method: 'GET',
+        scopes,
+      });
+    },
+  },
+
+  /**
+   * Certification Reviews — End-User API (/api/v1/governance/)
+   *
+   * All methods require the user's Org Authorization Server token.
+   * Returns reviewer-scoped data with rich contextual information.
+   */
+  reviews: {
+    /**
+     * List campaigns assigned to the current reviewer.
+     * GET /api/v1/governance/campaigns/me
+     */
+    listMyCampaigns: async (
+      userToken: string,
+      options?: { status?: string; sortBy?: string; sortOrder?: string; limit?: number }
+    ): Promise<any[]> => {
+      const params = new URLSearchParams();
+      if (options?.status) params.append('campaignStatus', options.status);
+      if (options?.sortBy) params.append('sortBy', options.sortBy);
+      if (options?.sortOrder) params.append('sortOrder', options.sortOrder);
+      if (options?.limit) params.append('limit', String(options.limit));
+      params.append('reviewItemsCount', 'true');
+      const query = params.toString() ? `?${params.toString()}` : '';
+      return await endUserGovernanceRequest(`/campaigns/me${query}`, userToken);
+    },
+
+    /**
+     * List review items assigned to the current reviewer for a campaign.
+     * GET /api/v1/governance/campaigns/{campaignId}/reviewItems/me
+     *
+     * Pre-filtered to the authenticated user. Returns rich contextual data
+     * including risk items, AI recommendations, entitlements, and group memberships.
+     */
+    listMyReviewItems: async (
+      campaignId: string,
+      userToken: string,
+      options?: { filter?: string; search?: string; sortBy?: string; sortOrder?: string; limit?: number; after?: number }
+    ): Promise<any[]> => {
+      const params = new URLSearchParams();
+      if (options?.filter) params.append('filter', options.filter);
+      if (options?.search) params.append('search', options.search);
+      if (options?.sortBy) params.append('sortBy', options.sortBy);
+      if (options?.sortOrder) params.append('sortOrder', options.sortOrder);
+      if (options?.limit) params.append('limit', String(options.limit));
+      if (options?.after) params.append('after', String(options.after));
+      const query = params.toString() ? `?${params.toString()}` : '';
+      return await endUserGovernanceRequest(`/campaigns/${campaignId}/reviewItems/me${query}`, userToken);
+    },
+
+    /**
+     * Submit approve/revoke decisions.
+     * PUT /api/v1/governance/campaigns/{campaignId}/reviewItems/me
+     */
+    submitDecision: async (
+      campaignId: string,
+      reviewItemId: string,
+      decision: 'APPROVE' | 'REVOKE',
+      reviewerLevelId: string,
+      note: string | undefined,
+      userToken: string
+    ): Promise<any> => {
+      return await endUserGovernanceRequest(
+        `/campaigns/${campaignId}/reviewItems/me`,
+        userToken,
+        {
+          method: 'PUT',
+          body: {
+            decisions: [{ reviewItemId, decision }],
+            reviewerLevelId,
+            note: note || '',
+          },
+        }
+      );
+    },
+
+    /**
+     * Admin: List reviews with optional filter (service app token).
+     * GET /governance/api/v1/reviews
+     * @deprecated Use listMyReviewItems for reviewer-scoped access
+     */
+    adminList: async (filter: string | undefined, limit: number, scopes: string): Promise<any[]> => {
+      const params = new URLSearchParams();
+      if (filter) params.append('filter', filter);
+      if (limit) params.append('limit', String(limit));
+      const query = params.toString() ? `?${params.toString()}` : '';
+      return await governanceRequest(`/reviews${query}`, {
+        method: 'GET',
+        scopes,
+      });
+    },
+
+    /**
+     * Admin: Get a specific review by ID (service app token).
+     * GET /governance/api/v1/reviews/{reviewId}
+     * @deprecated Use listMyReviewItems for reviewer-scoped access
+     */
+    adminGetById: async (reviewId: string, scopes: string): Promise<any> => {
+      return await governanceRequest(`/reviews/${reviewId}`, {
         method: 'GET',
         scopes,
       });

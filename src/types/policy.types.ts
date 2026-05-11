@@ -69,6 +69,8 @@ export interface AuthorizationContext {
     hasSecurityAccessReviews: boolean;
   };
   capabilities: Capability[];
+  /** Raw user access token for tools that need user-scoped API calls (e.g., certification decisions) */
+  userToken?: string;
 }
 
 /**

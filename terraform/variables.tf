@@ -84,5 +84,5 @@ variable "okta_oauth_issuer" {
 variable "okta_oauth_audience" {
   description = "Expected audience for OAuth tokens"
   type        = string
-  default     = "api://default"
+  default     = "api://mcp-governance"
 }
