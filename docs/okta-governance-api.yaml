@@ -1,0 +1,1150 @@
+openapi: 3.1.0
+info:
+  title: Okta Identity Governance Internal API
+  version: 2026.05.1
+  description: |
+    Okta Identity Governance API endpoints discovered via network trace
+    of the Access Certification Reviews UI and systematic probing.
+    Used by the Governance MCP Server for AI-assisted certification review.
+
+    ## Dual API Paths
+
+    Okta's Governance API uses two different base paths:
+
+    | Base Path | Context | Auth | Purpose |
+    |-----------|---------|------|---------|
+    | `/governance/api/v1/` | Admin | Service app (Org Auth Server) or SSWS | Campaign management, bulk review reads, labels |
+    | `/api/v1/governance/` | End-user (reviewer) | User OIDC (Org Auth Server) | List my review items, submit decisions |
+
+    The admin path requires an OAuth token from the Org Authorization Server
+    (`/oauth2/v1/token`) with `okta.governance.accessCertifications.read` scope,
+    and the service app must have the `ACCESS_CERTIFICATIONS_ADMIN` role.
+
+    The end-user path requires a user's OAuth token from the Org Auth Server
+    with `okta.governance.reviewer.read` and `okta.governance.reviewer.manage` scopes.
+    This is the same API surface used by the Access Certification Reviews UI.
+
+    ## Authentication
+
+    ### Service App (Admin Path)
+    - Grant type: `client_credentials` with `private_key_jwt`
+    - Token endpoint: `https://{org}.okta.com/oauth2/v1/token`
+    - Required role: `ACCESS_CERTIFICATIONS_ADMIN`
+    - Scopes: `okta.governance.accessCertifications.read`, `okta.governance.accessCertifications.manage`
+
+    ### User OIDC (End-User Path)
+    - Grant types: `device_code`, `authorization_code`
+    - Token endpoint: `https://{org}.okta.com/oauth2/v1/token`
+    - Scopes: `okta.governance.reviewer.read`, `okta.governance.reviewer.manage`
+    - Internal client ID used by Okta UI: `okta.fb029e32-607b-548c-b165-1b2f2cc92dd5`
+    - Full scopes used by UI: `openid profile email online_access okta.governance.users.read okta.governance.reviewer.read okta.governance.reviewer.manage okta.internal.enduser.read`
+
+    ### SSWS Token (Admin Path)
+    - Header: `Authorization: SSWS {apiKey}`
+    - Works for all admin path endpoints
+
+    ## Rate Limits
+    - 300 requests per minute (observed via `x-rate-limit-limit` header)
+
+  contact:
+    name: Joe Van Horn
+    email: joe.vanhorn@okta.com
+
+servers:
+  - url: https://{org}.okta.com
+    variables:
+      org:
+        default: taskvantage
+
+tags:
+  - name: End-User Campaigns
+    description: Reviewer's campaign list (end-user path)
+  - name: End-User Review Items
+    description: Reviewer's review items with contextual data (end-user path)
+  - name: End-User Decisions
+    description: Submit approve/revoke decisions (end-user path)
+  - name: Admin Campaigns
+    description: Campaign CRUD and lifecycle (admin path)
+  - name: Admin Reviews
+    description: Bulk review listing and detail (admin path)
+  - name: Admin Labels
+    description: Governance label management (admin path)
+
+paths:
+  # =========================================================================
+  # END-USER PATH: /api/v1/governance/
+  # =========================================================================
+
+  /api/v1/governance/campaigns/me:
+    get:
+      operationId: listMyCampaigns
+      summary: List campaigns assigned to the current reviewer
+      description: |
+        Returns campaigns where the authenticated user has review items assigned.
+        This is the entry point for the reviewer experience.
+      tags: [End-User Campaigns]
+      security:
+        - userOAuth: [okta.governance.reviewer.read]
+      parameters:
+        - name: campaignStatus
+          in: query
+          schema:
+            type: string
+            enum: [DRAFT, SCHEDULED, SNAPSHOT, READY, COMPLETED, DELETED, ERROR]
+          description: Filter by campaign status. Common values are READY (active) and COMPLETED.
+        - name: sortBy
+          in: query
+          schema:
+            type: string
+            enum: [endTime, startTime]
+          description: Field to sort by.
+        - name: sortOrder
+          in: query
+          schema:
+            type: string
+            enum: [ASC, DESC]
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 10
+        - name: reviewItemsCount
+          in: query
+          schema:
+            type: boolean
+          description: Include review item counts in campaignSummary.
+      responses:
+        '200':
+          description: List of campaigns
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/EndUserCampaign'
+
+  /api/v1/governance/campaigns/{campaignId}/reviewItems/me:
+    get:
+      operationId: listMyReviewItems
+      summary: List review items assigned to the current reviewer
+      description: |
+        Returns review items for a specific campaign where the authenticated user
+        is the reviewer. Includes rich contextual data: risk items, SOD conflicts,
+        AI recommendations, entitlement details, and group memberships.
+      tags: [End-User Review Items]
+      security:
+        - userOAuth: [okta.governance.reviewer.read]
+      parameters:
+        - name: campaignId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: after
+          in: query
+          schema:
+            type: integer
+          description: Cursor for pagination (from Link header `rel="next"`).
+        - name: filter
+          in: query
+          schema:
+            type: string
+          description: |
+            OData filter expression. Supported fields:
+            - `decision eq "UNREVIEWED"` / `"APPROVE"` / `"REVOKE"`
+        - name: search
+          in: query
+          schema:
+            type: string
+          description: Free-text search across review item fields.
+        - name: sortBy
+          in: query
+          schema:
+            type: string
+          description: |
+            Field to sort by. Supported values include:
+            `id`, `resourceId`, `decision`, `firstReviewerLevelDecision`,
+            `remediationStatus`, `reviewerLevelId`, `rootResourceName`,
+            `riskLevel`, `assignmentType`,
+            `principal.firstName`, `principal.lastName`, `principal.email`,
+            `reviewer.firstName`, `reviewer.lastName`, `reviewer.email`,
+            `principalProfile.firstName`, `principalProfile.lastName`,
+            `reviewerProfile.firstName`, `reviewerProfile.lastName`, `reviewerProfile.id`,
+            `reviewItemContextualInfo.userInfo.*` (firstName, lastName, userName, email,
+            costCenter, department, manager, title, city, countryCode, displayName,
+            division, locale, managerId, nickName, organization, state, timezone,
+            userType, userStatus, employeeNumber),
+            `reviewItemContextualInfo.appInfo.*` (name, label, applicationUsage,
+            assignmentType, assignedDate, lastAccessDate, accessExpirationDate),
+            `reviewItemContextualInfo.groupInfo.*` (name, groupSource, description, assignmentType),
+            `reviewItemContextualInfo.collectionInfo.*`,
+            `reviewItemContextualInfo.entitlementInfo.bundle.*`,
+            `reviewItemContextualInfo.entitlementInfo.entitlement.*`,
+            `reviewItemContextualInfo.serviceAccountInfo.*`,
+            `reviewItemContextualInfo.accessRequestInfo.*`,
+            `reviewItemContextualInfo.governanceInfo.*`,
+            `govAnalyzerRecommendationContext.recommendedReviewDecision`
+        - name: sortOrder
+          in: query
+          schema:
+            type: string
+            enum: [ASC, DESC]
+      responses:
+        '200':
+          description: List of review items with contextual data
+          headers:
+            Link:
+              schema:
+                type: string
+              description: 'Pagination link, e.g. `<url?after=2&limit=50>; rel="next"`'
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/EndUserReviewItem'
+
+    put:
+      operationId: submitDecisions
+      summary: Submit approve/revoke decisions for review items
+      description: |
+        Submit one or more certification decisions as the authenticated reviewer.
+        This is the same endpoint the Access Certification Reviews UI calls.
+        Decisions are final and cannot be changed after submission.
+      tags: [End-User Decisions]
+      security:
+        - userOAuth: [okta.governance.reviewer.manage]
+      parameters:
+        - name: campaignId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DecisionRequest'
+            examples:
+              approveOne:
+                summary: Approve a single item
+                value:
+                  decisions:
+                    - reviewItemId: icr5uidrshYJYRmhV1d6
+                      decision: APPROVE
+                  reviewerLevelId: "ONE"
+                  note: "Access confirmed — user needs this for their role"
+              revokeOne:
+                summary: Revoke a single item
+                value:
+                  decisions:
+                    - reviewItemId: icr5uidrshYJYRmhV1d6
+                      decision: REVOKE
+                  reviewerLevelId: "ONE"
+                  note: "User no longer in this department"
+              bulkApprove:
+                summary: Approve multiple items
+                value:
+                  decisions:
+                    - reviewItemId: icr5uidrshYJYRmhV1d6
+                      decision: APPROVE
+                    - reviewItemId: icr5uidrtsXcU5mM71d6
+                      decision: APPROVE
+                  reviewerLevelId: "ONE"
+                  note: "Batch approval — all users confirmed active"
+      responses:
+        '200':
+          description: Decisions submitted successfully. Returns updated review items.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/EndUserReviewItem'
+        '400':
+          description: |
+            Validation error. Common causes:
+            - Missing `reviewerLevelId` for multi-level campaigns
+            - Invalid decision value
+        '403':
+          description: User is not a reviewer on this campaign
+
+  # =========================================================================
+  # ADMIN PATH: /governance/api/v1/
+  # =========================================================================
+
+  /governance/api/v1/campaigns:
+    get:
+      operationId: adminListCampaigns
+      summary: List all campaigns
+      tags: [Admin Campaigns]
+      security:
+        - serviceApp: [okta.governance.accessCertifications.read]
+        - ssws: []
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Campaign list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AdminCampaignSummary'
+
+    post:
+      operationId: adminCreateCampaign
+      summary: Create a new campaign
+      tags: [Admin Campaigns]
+      security:
+        - serviceApp: [okta.governance.accessCertifications.manage]
+        - ssws: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminCampaignCreate'
+      responses:
+        '200':
+          description: Campaign created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminCampaign'
+
+  /governance/api/v1/campaigns/{campaignId}:
+    get:
+      operationId: adminGetCampaign
+      summary: Get campaign by ID
+      tags: [Admin Campaigns]
+      security:
+        - serviceApp: [okta.governance.accessCertifications.read]
+        - ssws: []
+      parameters:
+        - name: campaignId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Campaign detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminCampaign'
+
+    delete:
+      operationId: adminDeleteCampaign
+      summary: Delete a campaign
+      tags: [Admin Campaigns]
+      security:
+        - serviceApp: [okta.governance.accessCertifications.manage]
+        - ssws: []
+      parameters:
+        - name: campaignId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Campaign deleted
+
+  /governance/api/v1/campaigns/{campaignId}/launch:
+    post:
+      operationId: adminLaunchCampaign
+      summary: Launch a scheduled campaign
+      tags: [Admin Campaigns]
+      security:
+        - serviceApp: [okta.governance.accessCertifications.manage]
+        - ssws: []
+      parameters:
+        - name: campaignId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Campaign launching
+
+  /governance/api/v1/campaigns/{campaignId}/end:
+    post:
+      operationId: adminEndCampaign
+      summary: End an active campaign
+      tags: [Admin Campaigns]
+      security:
+        - serviceApp: [okta.governance.accessCertifications.manage]
+        - ssws: []
+      parameters:
+        - name: campaignId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Campaign ended
+
+  /governance/api/v1/reviews:
+    get:
+      operationId: adminListReviews
+      summary: List all reviews (admin bulk view)
+      description: |
+        Returns reviews across all campaigns. Can be filtered by campaign, decision status,
+        and resource. Uses the admin path — not scoped to a specific reviewer.
+      tags: [Admin Reviews]
+      security:
+        - serviceApp: [okta.governance.accessCertifications.read]
+        - ssws: []
+      parameters:
+        - name: filter
+          in: query
+          schema:
+            type: string
+          description: |
+            OData filter. Supported fields:
+            - `decision eq "UNREVIEWED"` / `"APPROVE"` / `"REVOKE"`
+            - `campaignId eq "{id}"`
+            - `resourceId eq "{id}"`
+            - Compound: `decision eq "UNREVIEWED" and campaignId eq "{id}"`
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 200
+        - name: orderBy
+          in: query
+          schema:
+            type: string
+            enum: [created, decision]
+          description: Sort field. Only `created` and `decision` are supported.
+      responses:
+        '200':
+          description: Reviews list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AdminReview'
+
+  /governance/api/v1/reviews/{reviewId}:
+    get:
+      operationId: adminGetReview
+      summary: Get review by ID
+      tags: [Admin Reviews]
+      security:
+        - serviceApp: [okta.governance.accessCertifications.read]
+        - ssws: []
+      parameters:
+        - name: reviewId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Review detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminReview'
+
+  /governance/api/v1/labels:
+    get:
+      operationId: adminListLabels
+      summary: List all governance labels
+      tags: [Admin Labels]
+      security:
+        - serviceApp: [okta.governance.labels.read]
+        - ssws: []
+      responses:
+        '200':
+          description: Labels list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Label'
+
+    post:
+      operationId: adminCreateLabel
+      summary: Create a governance label
+      tags: [Admin Labels]
+      security:
+        - serviceApp: [okta.governance.labels.manage]
+        - ssws: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                description:
+                  type: string
+      responses:
+        '200':
+          description: Label created
+
+components:
+  securitySchemes:
+    userOAuth:
+      type: oauth2
+      description: User OIDC token from Org Authorization Server
+      flows:
+        authorizationCode:
+          authorizationUrl: https://taskvantage.okta.com/oauth2/v1/authorize
+          tokenUrl: https://taskvantage.okta.com/oauth2/v1/token
+          scopes:
+            okta.governance.reviewer.read: Read reviewer's review items
+            okta.governance.reviewer.manage: Submit decisions
+        deviceCode:
+          tokenUrl: https://taskvantage.okta.com/oauth2/v1/token
+          deviceAuthorizationUrl: https://taskvantage.okta.com/oauth2/v1/device/authorize
+          scopes:
+            okta.governance.reviewer.read: Read reviewer's review items
+            okta.governance.reviewer.manage: Submit decisions
+
+    serviceApp:
+      type: oauth2
+      description: Service app token (client_credentials + private_key_jwt) from Org Authorization Server
+      flows:
+        clientCredentials:
+          tokenUrl: https://taskvantage.okta.com/oauth2/v1/token
+          scopes:
+            okta.governance.accessCertifications.read: Read campaigns and reviews
+            okta.governance.accessCertifications.manage: Create, launch, end campaigns
+            okta.governance.labels.read: Read governance labels
+            okta.governance.labels.manage: Create and assign labels
+
+    ssws:
+      type: apiKey
+      in: header
+      name: Authorization
+      description: "SSWS API token: `Authorization: SSWS {token}`"
+
+  schemas:
+    # =============================================
+    # End-User Schemas
+    # =============================================
+
+    EndUserCampaign:
+      type: object
+      properties:
+        id:
+          type: string
+        lastUpdate:
+          type: string
+          format: date-time
+        lastUpdatedBy:
+          type: string
+        createdDate:
+          type: string
+          format: date-time
+        createdBy:
+          type: string
+        startTime:
+          type: string
+          format: date-time
+        endTime:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [DRAFT, SCHEDULED, SNAPSHOT, READY, COMPLETED, DELETED, ERROR]
+        campaignSummary:
+          type: object
+          properties:
+            approved:
+              type: integer
+            delegated:
+              type: integer
+            revoked:
+              type: integer
+            outstanding:
+              type: integer
+            pending:
+              type: integer
+            total:
+              type: integer
+        template:
+          type: object
+          properties:
+            id:
+              type: string
+            name:
+              type: string
+            startDate:
+              type: string
+              format: date-time
+            endDate:
+              type: string
+              format: date-time
+            status:
+              type: string
+        assignedReviewerLevels:
+          type: array
+          items:
+            type: string
+          description: "Reviewer levels assigned to this user, e.g. ['ONE']"
+        reviewerLevelOfReviewer:
+          type: string
+          description: "Current reviewer level for this user, e.g. 'ONE'"
+        endDateForReviewerLevel:
+          type: string
+          format: date-time
+
+    EndUserReviewItem:
+      type: object
+      properties:
+        id:
+          type: string
+        lastUpdate:
+          type: string
+          format: date-time
+        lastUpdatedBy:
+          type: string
+        createdDate:
+          type: string
+          format: date-time
+        createdBy:
+          type: string
+        campaignId:
+          type: string
+        resourceId:
+          type: string
+        resourceUnderReview:
+          type: object
+          properties:
+            id:
+              type: string
+            type:
+              type: string
+              enum: [APP, GROUP, COLLECTION]
+        principalProfile:
+          $ref: '#/components/schemas/UserProfile'
+        reviewerProfile:
+          $ref: '#/components/schemas/UserProfile'
+        delegated:
+          type: boolean
+        assignmentType:
+          type: string
+          enum: [INDIVIDUAL, GROUP]
+        assignments:
+          type: array
+          items:
+            type: object
+            properties:
+              sourceType:
+                type: string
+        decision:
+          type: string
+          enum: [UNREVIEWED, APPROVE, REVOKE]
+        remediationStatus:
+          type: string
+          enum: [NONE, SUCCESS, FAILED, IN_PROGRESS]
+        reviewerType:
+          type: string
+          enum: [USER, GROUP, REVIEWER_EXPRESSION, RESOURCE_OWNER]
+        currReviewerLevel:
+          type: string
+          description: "Current reviewer level, e.g. 'ONE', 'TWO'"
+        note:
+          type: object
+          nullable: true
+          properties:
+            id:
+              type: string
+            note:
+              type: string
+        riskItems:
+          type: array
+          items:
+            $ref: '#/components/schemas/RiskItem'
+        sodConflicts:
+          type: array
+          items:
+            type: object
+        reviewItemContextualInfo:
+          $ref: '#/components/schemas/ReviewItemContextualInfo'
+        govAnalyzerRecommendationContext:
+          type: object
+          properties:
+            recommendedReviewDecision:
+              type: string
+              enum: [APPROVE, REVOKE]
+              description: AI-generated recommendation for this review item
+
+    RiskItem:
+      type: object
+      properties:
+        riskAttribute:
+          type: string
+          enum: [PAST_GOVERNANCE_DECISIONS, RESOURCE, USAGE_HISTORY, USER_RELATIONSHIP]
+        riskLabel:
+          type: string
+        riskLevel:
+          type: string
+          enum: [LOW, MEDIUM, HIGH]
+        reason:
+          type: object
+          properties:
+            message:
+              type: string
+              description: "Template string with {0}, {1} placeholders"
+            args:
+              type: array
+              items:
+                type: object
+                properties:
+                  value:
+                    type: string
+                  type:
+                    type: string
+                    enum: [NUMBER, RELATIVE_DATE_TO_NOW, STRING]
+
+    ReviewItemContextualInfo:
+      type: object
+      properties:
+        userInfo:
+          type: object
+          properties:
+            firstName:
+              type: string
+            lastName:
+              type: string
+            userName:
+              type: string
+            email:
+              type: string
+            userStatus:
+              type: string
+            customAttributes:
+              type: object
+        appInfo:
+          type: object
+          nullable: true
+          properties:
+            id:
+              type: string
+            name:
+              type: string
+            label:
+              type: string
+            assignedDate:
+              type: string
+              format: date-time
+            assignmentType:
+              type: string
+            assignments:
+              type: array
+              items:
+                type: object
+            applicationUsage:
+              type: integer
+              description: "Number of app access events (0 = no usage data)"
+            groupMembershipAssignedTo:
+              type: array
+              items:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  name:
+                    type: string
+            activeEntitlements:
+              type: array
+              items:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  name:
+                    type: string
+                    description: "Entitlement set name (e.g. 'Roles')"
+                  values:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        name:
+                          type: string
+                          description: "Entitlement value (e.g. 'admin')"
+        groupInfo:
+          type: object
+          nullable: true
+        collectionInfo:
+          type: object
+          nullable: true
+
+    DecisionRequest:
+      type: object
+      required: [decisions, reviewerLevelId]
+      properties:
+        decisions:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [reviewItemId, decision]
+            properties:
+              reviewItemId:
+                type: string
+              decision:
+                type: string
+                enum: [APPROVE, REVOKE]
+        reviewerLevelId:
+          type: string
+          description: |
+            Required for multi-level campaigns (which is most campaigns).
+            Value comes from `EndUserCampaign.assignedReviewerLevels` or
+            `EndUserReviewItem.currReviewerLevel`.
+            Typically "ONE" for first-level reviewer.
+        note:
+          type: string
+          description: Optional justification note. Empty string if none.
+
+    # =============================================
+    # Admin Schemas
+    # =============================================
+
+    UserProfile:
+      type: object
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+        firstName:
+          type: string
+        lastName:
+          type: string
+        status:
+          type: string
+          enum: [ACTIVE, STAGED, PROVISIONED, DEPROVISIONED, SUSPENDED]
+        type:
+          type: string
+          enum: [USER]
+
+    AdminCampaignSummary:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        startDate:
+          type: string
+          format: date-time
+        endDate:
+          type: string
+          format: date-time
+        scheduleType:
+          type: string
+          enum: [ONE_OFF, RECURRING]
+        reviewerType:
+          type: string
+          enum: [USER, GROUP, REVIEWER_EXPRESSION, RESOURCE_OWNER, MULTI_LEVEL]
+        status:
+          type: string
+          enum: [SCHEDULED, LAUNCHING, ACTIVE, COMPLETED]
+        createdBy:
+          type: string
+        created:
+          type: string
+          format: date-time
+        lastUpdated:
+          type: string
+          format: date-time
+        _links:
+          type: object
+
+    AdminCampaign:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        campaignType:
+          type: string
+          enum: [RESOURCE]
+        status:
+          type: string
+          enum: [SCHEDULED, LAUNCHING, ACTIVE, COMPLETED]
+        scheduleSettings:
+          type: object
+          properties:
+            type:
+              type: string
+              enum: [ONE_OFF, RECURRING]
+            startDate:
+              type: string
+            endDate:
+              type: string
+            durationInDays:
+              type: integer
+            timeZone:
+              type: string
+        resourceSettings:
+          type: object
+          properties:
+            type:
+              type: string
+              enum: [APPLICATION]
+            targetTypes:
+              type: array
+              items:
+                type: string
+                enum: [APPLICATION, GROUP]
+            targetResources:
+              type: array
+              items:
+                type: object
+                properties:
+                  resourceId:
+                    type: string
+                  resourceType:
+                    type: string
+                    enum: [APPLICATION, GROUP, GOVERNANCE_LABEL_VALUE, APP_SERVICE_ACCOUNT, OKTA_SERVICE_ACCOUNT, COLLECTION]
+                  includeAllEntitlementsAndBundles:
+                    type: boolean
+            includeEntitlements:
+              type: boolean
+            includeAdminRoles:
+              type: boolean
+        principalScopeSettings:
+          type: object
+          properties:
+            type:
+              type: string
+              enum: [USERS, ALL]
+            userIds:
+              type: array
+              items:
+                type: string
+            groupIds:
+              type: array
+              items:
+                type: string
+            includeOnlyActiveUsers:
+              type: boolean
+        reviewerSettings:
+          type: object
+          properties:
+            type:
+              type: string
+              enum: [MULTI_LEVEL, USER, GROUP, REVIEWER_EXPRESSION, RESOURCE_OWNER]
+            reviewerLevels:
+              type: array
+              minItems: 2
+              items:
+                type: object
+                properties:
+                  type:
+                    type: string
+                    enum: [USER, REVIEWER_EXPRESSION, GROUP, RESOURCE_OWNER]
+                  reviewerId:
+                    type: string
+                  reviewerScopeExpression:
+                    type: string
+                    description: "e.g. 'user.profile.managerId'"
+                  fallBackReviewerId:
+                    type: string
+                  selfReviewDisabled:
+                    type: boolean
+                  startReview:
+                    type: object
+                    properties:
+                      onDay:
+                        type: integer
+                      when:
+                        type: string
+                        enum: [LOWER_LEVEL_APPROVES]
+              description: |
+                Minimum 2 reviewer levels required. Second level must start on day >= 3.
+        remediationSettings:
+          type: object
+          properties:
+            accessApproved:
+              type: string
+              enum: [NO_ACTION]
+            accessRevoked:
+              type: string
+              enum: [NO_ACTION]
+            noResponse:
+              type: string
+              enum: [NO_ACTION]
+        notificationSettings:
+          type: object
+        _links:
+          type: object
+        createdBy:
+          type: string
+        created:
+          type: string
+          format: date-time
+        lastUpdated:
+          type: string
+          format: date-time
+
+    AdminCampaignCreate:
+      type: object
+      required: [name, campaignType, scheduleSettings, resourceSettings, principalScopeSettings, reviewerSettings, remediationSettings]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        campaignType:
+          type: string
+          enum: [RESOURCE]
+        scheduleSettings:
+          type: object
+          required: [type, startDate, durationInDays, timeZone]
+          properties:
+            type:
+              type: string
+              enum: [ONE_OFF, RECURRING]
+            startDate:
+              type: string
+            durationInDays:
+              type: integer
+            timeZone:
+              type: string
+        resourceSettings:
+          type: object
+        principalScopeSettings:
+          type: object
+        reviewerSettings:
+          type: object
+        notificationSettings:
+          type: object
+        remediationSettings:
+          type: object
+
+    AdminReview:
+      type: object
+      description: |
+        Admin view of a review item. Less contextual data than the end-user view
+        but includes _links for reassignment.
+      properties:
+        id:
+          type: string
+        campaignId:
+          type: string
+        resourceId:
+          type: string
+        decision:
+          type: string
+          enum: [UNREVIEWED, APPROVE, REVOKE]
+        remediationStatus:
+          type: string
+          enum: [NONE, SUCCESS, FAILED, IN_PROGRESS]
+        principalProfile:
+          $ref: '#/components/schemas/UserProfile'
+        reviewerProfile:
+          $ref: '#/components/schemas/UserProfile'
+        reviewerType:
+          type: string
+        currentReviewerLevel:
+          type: string
+          description: "Note: admin path uses 'currentReviewerLevel' vs end-user 'currReviewerLevel'"
+        assignmentType:
+          type: string
+        assignments:
+          type: array
+          items:
+            type: object
+        riskRuleConflicts:
+          type: array
+          items:
+            type: object
+        delegated:
+          type: boolean
+        entitlementBundle:
+          type: object
+          nullable: true
+          properties:
+            id:
+              type: string
+            name:
+              type: string
+        entitlementValue:
+          type: object
+          nullable: true
+          properties:
+            id:
+              type: string
+            name:
+              type: string
+            externalValue:
+              type: string
+        _links:
+          type: object
+        created:
+          type: string
+          format: date-time
+        lastUpdated:
+          type: string
+          format: date-time
+
+    Label:
+      type: object
+      properties:
+        labelId:
+          type: string
+        name:
+          type: string
+        values:
+          type: array
+          items:
+            type: object
+            properties:
+              labelValueId:
+                type: string
+              name:
+                type: string
+              metadata:
+                type: object
+                properties:
+                  additionalProperties:
+                    type: object
+                    properties:
+                      backgroundColor:
+                        type: string
+        _links:
+          type: object
