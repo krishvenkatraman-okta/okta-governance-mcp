@@ -1,14 +1,17 @@
 /**
  * Okta Governance API client
  *
- * Provides methods for interacting with Okta Governance APIs
+ * Two API surfaces:
+ * - Admin API (/governance/api/v1/) — service app token, bulk operations
+ * - End-user API (/api/v1/governance/) — user's Org AS token, reviewer-scoped
  */
 
 import { getServiceAccessToken } from './service-client.js';
 import { config } from '../config/index.js';
 
 /**
- * Base governance API request
+ * Admin governance API request (/governance/api/v1/)
+ * Uses service app token by default; can override with user token.
  */
 async function governanceRequest<T>(
   endpoint: string,
@@ -36,6 +39,39 @@ async function governanceRequest<T>(
   if (!response.ok) {
     const error = await response.text();
     throw new Error(`Governance API request failed: ${response.status} ${error}`);
+  }
+
+  return await response.json() as T;
+}
+
+/**
+ * End-user governance API request (/api/v1/governance/)
+ * Requires the user's Org Authorization Server token.
+ * This is the same API surface the Access Certification Reviews UI uses.
+ */
+async function endUserGovernanceRequest<T>(
+  endpoint: string,
+  userToken: string,
+  options: {
+    method?: string;
+    body?: unknown;
+  } = {}
+): Promise<T> {
+  const url = `${config.okta.orgUrl}/api/v1/governance${endpoint}`;
+
+  const response = await fetch(url, {
+    method: options.method || 'GET',
+    headers: {
+      'Authorization': `Bearer ${userToken}`,
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+    },
+    body: options.body ? JSON.stringify(options.body) : undefined,
+  });
+
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`End-user Governance API failed: ${response.status} ${error}`);
   }
 
   return await response.json() as T;
@@ -196,62 +232,56 @@ export const governanceClient = {
   },
 
   /**
-   * Certification Reviews API
+   * Certification Reviews — End-User API (/api/v1/governance/)
+   *
+   * All methods require the user's Org Authorization Server token.
+   * Returns reviewer-scoped data with rich contextual information.
    */
   reviews: {
     /**
-     * List reviews with optional filter (requires user token)
-     * @param filter - OData filter (e.g., 'decision eq "UNREVIEWED"')
-     * @param limit - Max results (default 200)
-     * @param userToken - The authenticated user's access token
+     * List campaigns assigned to the current reviewer.
+     * GET /api/v1/governance/campaigns/me
      */
-    list: async (filter: string | undefined, limit: number, scopes: string, userToken?: string): Promise<any[]> => {
+    listMyCampaigns: async (
+      userToken: string,
+      options?: { status?: string; sortBy?: string; sortOrder?: string; limit?: number }
+    ): Promise<any[]> => {
       const params = new URLSearchParams();
-      if (filter) params.append('filter', filter);
-      if (limit) params.append('limit', String(limit));
+      if (options?.status) params.append('campaignStatus', options.status);
+      if (options?.sortBy) params.append('sortBy', options.sortBy);
+      if (options?.sortOrder) params.append('sortOrder', options.sortOrder);
+      if (options?.limit) params.append('limit', String(options.limit));
+      params.append('reviewItemsCount', 'true');
       const query = params.toString() ? `?${params.toString()}` : '';
-      return await governanceRequest(`/reviews${query}`, {
-        method: 'GET',
-        scopes,
-        token: userToken,
-      });
+      return await endUserGovernanceRequest(`/campaigns/me${query}`, userToken);
     },
 
     /**
-     * List review items assigned to the current user for a specific campaign
-     * Endpoint: GET /governance/api/v1/campaigns/{campaignId}/reviewItems/me
-     * @param userToken - The authenticated user's access token
-     */
-    listMyReviewItems: async (campaignId: string, limit: number, scopes: string, userToken?: string): Promise<any> => {
-      const params = new URLSearchParams();
-      if (limit) params.append('limit', String(limit));
-      const query = params.toString() ? `?${params.toString()}` : '';
-      return await governanceRequest(`/campaigns/${campaignId}/reviewItems/me${query}`, {
-        method: 'GET',
-        scopes,
-        token: userToken,
-      });
-    },
-
-    /**
-     * Get a specific review by ID (requires user token)
-     * @param userToken - The authenticated user's access token
-     */
-    getById: async (reviewId: string, scopes: string, userToken?: string): Promise<any> => {
-      return await governanceRequest(`/reviews/${reviewId}`, {
-        method: 'GET',
-        scopes,
-        token: userToken,
-      });
-    },
-
-    /**
-     * Submit a certification decision using the user's token.
+     * List review items assigned to the current reviewer for a campaign.
+     * GET /api/v1/governance/campaigns/{campaignId}/reviewItems/me
      *
-     * Uses the end-user Governance API at /api/v1/governance/ (not /governance/api/v1/).
-     * This is the same endpoint the Access Certification Reviews UI calls.
-     * Requires a user token from the Org Authorization Server with
-     * okta.governance.reviewer.manage scope.
+     * Pre-filtered to the authenticated user. Returns rich contextual data
+     * including risk items, AI recommendations, entitlements, and group memberships.
+     */
+    listMyReviewItems: async (
+      campaignId: string,
+      userToken: string,
+      options?: { filter?: string; search?: string; sortBy?: string; sortOrder?: string; limit?: number; after?: number }
+    ): Promise<any[]> => {
+      const params = new URLSearchParams();
+      if (options?.filter) params.append('filter', options.filter);
+      if (options?.search) params.append('search', options.search);
+      if (options?.sortBy) params.append('sortBy', options.sortBy);
+      if (options?.sortOrder) params.append('sortOrder', options.sortOrder);
+      if (options?.limit) params.append('limit', String(options.limit));
+      if (options?.after) params.append('after', String(options.after));
+      const query = params.toString() ? `?${params.toString()}` : '';
+      return await endUserGovernanceRequest(`/campaigns/${campaignId}/reviewItems/me${query}`, userToken);
+    },
+
+    /**
+     * Submit approve/revoke decisions.
+     * PUT /api/v1/governance/campaigns/{campaignId}/reviewItems/me
      */
     submitDecision: async (
       campaignId: string,
@@ -261,30 +291,46 @@ export const governanceClient = {
       note: string | undefined,
       userToken: string
     ): Promise<any> => {
-      // The decision endpoint uses /api/v1/governance/ (end-user path),
-      // NOT /governance/api/v1/ (admin path used by the service app)
-      const url = `${config.okta.orgUrl}/api/v1/governance/campaigns/${campaignId}/reviewItems/me`;
+      return await endUserGovernanceRequest(
+        `/campaigns/${campaignId}/reviewItems/me`,
+        userToken,
+        {
+          method: 'PUT',
+          body: {
+            decisions: [{ reviewItemId, decision }],
+            reviewerLevelId,
+            note: note || '',
+          },
+        }
+      );
+    },
 
-      const response = await fetch(url, {
-        method: 'PUT',
-        headers: {
-          'Authorization': `Bearer ${userToken}`,
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
-        body: JSON.stringify({
-          decisions: [{ reviewItemId, decision }],
-          reviewerLevelId,
-          note: note || '',
-        }),
+    /**
+     * Admin: List reviews with optional filter (service app token).
+     * GET /governance/api/v1/reviews
+     * @deprecated Use listMyReviewItems for reviewer-scoped access
+     */
+    adminList: async (filter: string | undefined, limit: number, scopes: string): Promise<any[]> => {
+      const params = new URLSearchParams();
+      if (filter) params.append('filter', filter);
+      if (limit) params.append('limit', String(limit));
+      const query = params.toString() ? `?${params.toString()}` : '';
+      return await governanceRequest(`/reviews${query}`, {
+        method: 'GET',
+        scopes,
       });
+    },
 
-      if (!response.ok) {
-        const error = await response.text();
-        throw new Error(`Decision submission failed: ${response.status} ${error}`);
-      }
-
-      return await response.json();
+    /**
+     * Admin: Get a specific review by ID (service app token).
+     * GET /governance/api/v1/reviews/{reviewId}
+     * @deprecated Use listMyReviewItems for reviewer-scoped access
+     */
+    adminGetById: async (reviewId: string, scopes: string): Promise<any> => {
+      return await governanceRequest(`/reviews/${reviewId}`, {
+        method: 'GET',
+        scopes,
+      });
     },
   },
 

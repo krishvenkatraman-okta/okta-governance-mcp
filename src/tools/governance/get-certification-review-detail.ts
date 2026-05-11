@@ -1,9 +1,9 @@
 /**
  * Tool: get_certification_review_detail
  *
- * Gets full details on a specific certification review item, including
- * the principal's profile, entitlement details, risk rule conflicts,
- * and the multi-level reviewer chain.
+ * Gets full details on a specific certification review item from the
+ * end-user Governance API, including contextual info, risk analysis,
+ * AI recommendation, and entitlement details.
  */
 
 import { governanceClient } from '../../okta/governance-client.js';
@@ -11,100 +11,123 @@ import { createJsonResponse, createErrorResponse } from '../types.js';
 import type { AuthorizationContext, McpToolCallResponse } from '../../types/index.js';
 import type { ToolDefinition } from '../types.js';
 
-const SCOPES = 'okta.governance.accessCertifications.read';
-
 interface GetCertReviewDetailArgs {
-  reviewId: string;
+  campaignId: string;
+  reviewItemId: string;
 }
 
 async function handler(
   args: Record<string, unknown>,
   context: AuthorizationContext
 ): Promise<McpToolCallResponse> {
-  const { reviewId } = args as Partial<GetCertReviewDetailArgs>;
+  const { campaignId, reviewItemId } = args as Partial<GetCertReviewDetailArgs>;
 
-  if (!reviewId) {
-    return createErrorResponse('Missing required argument: reviewId');
+  if (!campaignId) {
+    return createErrorResponse('Missing required argument: campaignId');
+  }
+  if (!reviewItemId) {
+    return createErrorResponse('Missing required argument: reviewItemId');
+  }
+  if (!context.userToken) {
+    return createErrorResponse(
+      'User token not available. This tool requires the reviewer\'s Org Auth Server token.'
+    );
   }
 
   console.log('[GetCertReviewDetail] Executing:', {
     subject: context.subject,
-    reviewId,
+    campaignId,
+    reviewItemId,
   });
 
   try {
-    // Use service app token (with ACCESS_CERTIFICATIONS_ADMIN role) for reads
-    const review = await governanceClient.reviews.getById(reviewId, SCOPES);
+    // Fetch the user's review items and find the specific one
+    // The end-user API doesn't have a single-item GET — we search by filter
+    const items = await governanceClient.reviews.listMyReviewItems(
+      campaignId,
+      context.userToken,
+      { limit: 200 }
+    );
 
-    // Verify the authenticated user is a reviewer on this item
-    // context.subject may be login/email or Okta user ID, so check both
-    const matchesUser = (profile: any) =>
-      profile?.id === context.subject || profile?.email === context.subject;
-    const isReviewer =
-      matchesUser(review.reviewerProfile) ||
-      review.allReviewerLevels?.some((l: any) => matchesUser(l.reviewerProfile));
+    const allItems = Array.isArray(items) ? items : [];
+    const review = allItems.find((r: any) => r.id === reviewItemId);
 
-    if (!isReviewer && !context.roles.superAdmin && !context.roles.orgAdmin) {
+    if (!review) {
       return createErrorResponse(
-        `Access denied: You are not a reviewer on item ${reviewId}`
+        `Review item ${reviewItemId} not found in campaign ${campaignId}. ` +
+        'It may not be assigned to you or may have already been decided.'
       );
     }
 
-    // Build a comprehensive detail response
+    // Build comprehensive detail response
     const detail = {
-      reviewId: review.id,
+      reviewItemId: review.id,
       campaignId: review.campaignId,
       decision: review.decision,
-      decidedAt: review.decided || null,
       remediationStatus: review.remediationStatus,
+      reviewerLevel: review.currReviewerLevel,
+      delegated: review.delegated || false,
 
-      // Who is being reviewed
+      // Principal being reviewed
       principal: {
         id: review.principalProfile?.id,
         firstName: review.principalProfile?.firstName,
         lastName: review.principalProfile?.lastName,
         email: review.principalProfile?.email,
         status: review.principalProfile?.status,
-        type: review.principalProfile?.type,
       },
 
-      // What access is being reviewed
-      entitlement: {
-        bundleName: review.entitlementBundle?.name || null,
-        bundleId: review.entitlementBundle?.id || null,
-        valueName: review.entitlementValue?.name || null,
-        valueId: review.entitlementValue?.id || null,
-        externalValue: review.entitlementValue?.externalValue || null,
+      // User contextual info (richer than principalProfile)
+      userContext: review.reviewItemContextualInfo?.userInfo || null,
+
+      // Resource/app being reviewed
+      resource: {
+        id: review.resourceUnderReview?.id,
+        type: review.resourceUnderReview?.type,
+        name: review.reviewItemContextualInfo?.appInfo?.label
+          || review.reviewItemContextualInfo?.groupInfo?.name
+          || null,
       },
 
-      // Resource being accessed
-      resourceId: review.resourceId,
-      assignmentType: review.assignmentType,
+      // App-specific context
+      appContext: review.reviewItemContextualInfo?.appInfo ? {
+        assignedDate: review.reviewItemContextualInfo.appInfo.assignedDate,
+        assignmentType: review.reviewItemContextualInfo.appInfo.assignmentType,
+        applicationUsage: review.reviewItemContextualInfo.appInfo.applicationUsage,
+        groups: review.reviewItemContextualInfo.appInfo.groupMembershipAssignedTo?.map(
+          (g: any) => ({ id: g.id, name: g.name })
+        ) || [],
+        entitlements: review.reviewItemContextualInfo.appInfo.activeEntitlements?.map(
+          (e: any) => ({
+            setName: e.name,
+            values: e.values?.map((v: any) => ({ id: v.id, name: v.name })),
+          })
+        ) || [],
+      } : null,
 
-      // Risk information
-      riskRuleConflicts: review.riskRuleConflicts || [],
-      hasRiskConflicts: (review.riskRuleConflicts?.length || 0) > 0,
-
-      // Review chain
-      currentReviewerLevel: review.currentReviewerLevel,
-      delegated: review.delegated || false,
-      reviewerChain: (review.allReviewerLevels || []).map((level: any) => ({
-        level: level.reviewerLevel,
-        decision: level.decision,
-        reviewer: {
-          id: level.reviewerProfile?.id,
-          name: `${level.reviewerProfile?.firstName || ''} ${level.reviewerProfile?.lastName || ''}`.trim(),
-          email: level.reviewerProfile?.email,
-        },
-        decidedAt: level.lastUpdated,
+      // Risk analysis
+      riskItems: (review.riskItems || []).map((ri: any) => ({
+        attribute: ri.riskAttribute,
+        label: ri.riskLabel,
+        level: ri.riskLevel,
+        reason: ri.reason?.message?.replace(
+          /\{(\d+)\}/g,
+          (_: string, i: string) => ri.reason?.args?.[parseInt(i)]?.value || `{${i}}`
+        ),
       })),
 
-      // Previous note if any
+      // SOD conflicts
+      sodConflicts: review.sodConflicts || [],
+
+      // AI recommendation
+      aiRecommendation: review.govAnalyzerRecommendationContext?.recommendedReviewDecision || null,
+
+      // Previous note
       note: review.note?.note || null,
 
       // Metadata
-      created: review.created,
-      lastUpdated: review.lastUpdated,
+      created: review.createdDate,
+      lastUpdated: review.lastUpdate,
     };
 
     return createJsonResponse(detail);
@@ -120,19 +143,23 @@ export const getCertificationReviewDetailTool: ToolDefinition = {
   definition: {
     name: 'get_certification_review_detail',
     description:
-      'Get full details on a specific certification review item. ' +
-      'Returns the principal being reviewed, their entitlement/access details, ' +
-      'risk rule conflicts, the multi-level reviewer chain, and current decision status. ' +
-      'Use this to understand the context before making an approve/revoke decision.',
+      'Get full details on a specific certification review item including ' +
+      'the principal\'s profile, app/entitlement details, risk analysis, ' +
+      'SOD conflicts, AI recommendation, and assignment context. ' +
+      'Requires both campaignId and reviewItemId.',
     inputSchema: {
       type: 'object',
       properties: {
-        reviewId: {
+        campaignId: {
+          type: 'string',
+          description: 'The campaign ID containing the review item.',
+        },
+        reviewItemId: {
           type: 'string',
           description: 'The review item ID to get details for.',
         },
       },
-      required: ['reviewId'],
+      required: ['campaignId', 'reviewItemId'],
     },
   },
   handler,
