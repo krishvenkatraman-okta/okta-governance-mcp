@@ -49,6 +49,7 @@ export interface FrontendConfig {
       keyId: string;                  // Key ID (kid) for signing client assertions
       privateKeyJwk?: string;         // User OAuth client private key as JWK (JSON string, server-side only)
       privateKeyPath?: string;        // Alternative: path to private key file (server-side only)
+      clientSecret?: string;          // Client secret for client_secret_post auth on token exchange (server-side only)
     };
 
     // ORG Authorization Server
@@ -115,6 +116,7 @@ export function loadConfig(): FrontendConfig {
   const userOAuthKeyId = process.env.NEXT_PUBLIC_OKTA_USER_OAUTH_KEY_ID || '';
   const userOAuthPrivateKeyJwk = process.env.USER_OAUTH_PRIVATE_KEY_JWK;  // Server-side only
   const userOAuthPrivateKeyPath = process.env.USER_OAUTH_PRIVATE_KEY_PATH;  // Server-side only
+  const userOAuthClientSecret = process.env.OKTA_USER_OAUTH_CLIENT_SECRET;  // Server-side only
 
   // Custom authorization server ID
   const customAuthServerId = process.env.NEXT_PUBLIC_OKTA_CUSTOM_AUTH_SERVER_ID || 'default';
@@ -146,6 +148,7 @@ export function loadConfig(): FrontendConfig {
         keyId: userOAuthKeyId,
         privateKeyJwk: userOAuthPrivateKeyJwk,
         privateKeyPath: userOAuthPrivateKeyPath,
+        clientSecret: userOAuthClientSecret,
       },
 
       // ORG Authorization Server

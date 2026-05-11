@@ -15,6 +15,7 @@
 import crypto from "crypto";
 import { Router, type Request, type Response, type NextFunction } from "express";
 import fetch from "node-fetch";
+import { SignJWT, importPKCS8 } from "jose";
 
 // Extend session to hold our auth data
 declare module "express-session" {
@@ -36,6 +37,58 @@ const OKTA_CLIENT_ID = process.env.OKTA_AGENT_CLIENT_ID || "";
 const OKTA_CLIENT_SECRET = process.env.OKTA_AGENT_CLIENT_SECRET || "";
 const CALLBACK_URL = process.env.AGENT_CALLBACK_URL || "http://localhost:3100/auth/callback";
 const OKTA_SCOPES = process.env.OKTA_SCOPES || "openid profile email";
+
+// XAA token-exchange config: ID token → ID-JAG → MCP access token
+const OKTA_DOMAIN = OKTA_ISSUER.replace(/^https?:\/\//, "").replace(/\/.*$/, "");
+const ORG_TOKEN_ENDPOINT = OKTA_DOMAIN ? `https://${OKTA_DOMAIN}/oauth2/v1/token` : "";
+const CUSTOM_AS_ID = process.env.OKTA_CUSTOM_AUTH_SERVER_ID || "";
+const CUSTOM_TOKEN_ENDPOINT = OKTA_DOMAIN && CUSTOM_AS_ID
+  ? `https://${OKTA_DOMAIN}/oauth2/${CUSTOM_AS_ID}/v1/token`
+  : "";
+const MCP_AUDIENCE = process.env.OKTA_MCP_AUDIENCE || "";
+const MCP_SCOPE = process.env.OKTA_MCP_SCOPE || "governance:mcp";
+
+// Agent principal credentials for private_key_jwt auth on token exchange.
+// PEM in .env carries literal "\n" sequences; convert to real newlines.
+const AGENT_PRINCIPAL_ID = process.env.OKTA_AGENT_PRINCIPAL_ID || "";
+const AGENT_KEY_ID = process.env.OKTA_AGENT_PUBLIC_KEY_ID || "";
+const AGENT_PRIVATE_KEY_PEM = (process.env.OKTA_AGENT_PRIVATE_KEY || "").replace(/\\n/g, "\n");
+
+let cachedAgentKey: Awaited<ReturnType<typeof importPKCS8>> | null = null;
+async function getAgentSigningKey() {
+  if (cachedAgentKey) return cachedAgentKey;
+  if (!AGENT_PRIVATE_KEY_PEM) throw new Error("OKTA_AGENT_PRIVATE_KEY not set");
+  cachedAgentKey = await importPKCS8(AGENT_PRIVATE_KEY_PEM, "RS256");
+  return cachedAgentKey;
+}
+
+async function buildAgentClientAssertion(audience: string): Promise<string> {
+  // ID-JAG ("Identity-JAG"): iss=sub=principal_id (the AI agent's UD identifier),
+  // NOT the OAuth client_id. The agent identity is the subject of the exchange.
+  if (!AGENT_PRINCIPAL_ID) throw new Error("OKTA_AGENT_PRINCIPAL_ID not set");
+  if (!AGENT_KEY_ID) throw new Error("OKTA_AGENT_PUBLIC_KEY_ID not set");
+  const key = await getAgentSigningKey();
+  const now = Math.floor(Date.now() / 1000);
+  return await new SignJWT({
+    iss: AGENT_PRINCIPAL_ID,
+    sub: AGENT_PRINCIPAL_ID,
+    aud: audience,
+    iat: now,
+    exp: now + 300,
+    jti: crypto.randomUUID(),
+  })
+    .setProtectedHeader({ alg: "RS256", kid: AGENT_KEY_ID })
+    .sign(key);
+}
+
+function decodeJwtPayload(jwt: string): Record<string, unknown> {
+  try {
+    const payload = jwt.split(".")[1];
+    return JSON.parse(Buffer.from(payload, "base64url").toString());
+  } catch {
+    return {};
+  }
+}
 
 // PKCE helpers
 function base64URLEncode(buffer: Buffer): string {
@@ -66,6 +119,75 @@ async function discover() {
   if (!resp.ok) throw new Error(`OIDC discovery failed: ${resp.status}`);
   discoveryCache = (await resp.json()) as typeof discoveryCache;
   return discoveryCache!;
+}
+
+/**
+ * Exchange an OIDC id_token for an MCP access token via Okta XAA.
+ *
+ *  1. id_token + client auth → ORG AS /token (grant=token-exchange, requested=id-jag) → ID-JAG
+ *  2. ID-JAG  + client auth → CUSTOM AS /token (grant=jwt-bearer)                    → MCP access_token
+ *
+ * Okta resolves the agent principal from the OAuth app's UD link automatically;
+ * we don't need to send a principal_id explicitly.
+ */
+async function exchangeForMcpAccessToken(idToken: string): Promise<string> {
+  if (!ORG_TOKEN_ENDPOINT || !CUSTOM_TOKEN_ENDPOINT) {
+    throw new Error(
+      "XAA endpoints not configured. Set OKTA_ISSUER + OKTA_CUSTOM_AUTH_SERVER_ID."
+    );
+  }
+  if (!MCP_AUDIENCE) {
+    throw new Error("OKTA_MCP_AUDIENCE not set.");
+  }
+
+  // Step 1: id_token → ID-JAG (private_key_jwt auth, per Okta XAA spec)
+  const idJagAssertion = await buildAgentClientAssertion(ORG_TOKEN_ENDPOINT);
+  console.log("ID-JAG client_assertion claims:", decodeJwtPayload(idJagAssertion));
+  const idJagBody = new URLSearchParams({
+    grant_type: "urn:ietf:params:oauth:grant-type:token-exchange",
+    requested_token_type: "urn:ietf:params:oauth:token-type:id-jag",
+    subject_token: idToken,
+    subject_token_type: "urn:ietf:params:oauth:token-type:id_token",
+    audience: MCP_AUDIENCE,
+    scope: MCP_SCOPE,
+    client_assertion_type: "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
+    client_assertion: idJagAssertion,
+  });
+
+  const idJagResp = await fetch(ORG_TOKEN_ENDPOINT, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: idJagBody.toString(),
+  });
+
+  if (!idJagResp.ok) {
+    const text = await idJagResp.text();
+    throw new Error(`ID-JAG exchange failed: ${idJagResp.status} ${text}`);
+  }
+
+  const idJag = ((await idJagResp.json()) as { access_token: string }).access_token;
+
+  // Step 2: ID-JAG → MCP access token (custom AS, private_key_jwt auth)
+  const accessAssertion = await buildAgentClientAssertion(CUSTOM_TOKEN_ENDPOINT);
+  const accessBody = new URLSearchParams({
+    grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+    assertion: idJag,
+    client_assertion_type: "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
+    client_assertion: accessAssertion,
+  });
+
+  const accessResp = await fetch(CUSTOM_TOKEN_ENDPOINT, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: accessBody.toString(),
+  });
+
+  if (!accessResp.ok) {
+    const text = await accessResp.text();
+    throw new Error(`MCP access-token exchange failed: ${accessResp.status} ${text}`);
+  }
+
+  return ((await accessResp.json()) as { access_token: string }).access_token;
 }
 
 export function authRouter(): Router {
@@ -149,8 +271,35 @@ export function authRouter(): Router {
         name: string;
       };
 
+      // Debug: log id_token + access_token claims so we can verify aud/iss/scopes
+      const idClaims = decodeJwtPayload(tokens.id_token);
+      const atClaims = decodeJwtPayload(tokens.access_token);
+      console.log("OIDC id_token claims:", {
+        iss: idClaims.iss,
+        aud: idClaims.aud,
+        sub: idClaims.sub,
+      });
+      console.log("OIDC access_token claims:", {
+        iss: atClaims.iss,
+        aud: atClaims.aud,
+        scp: atClaims.scp,
+      });
+
+      // XAA exchange: id_token → ID-JAG → MCP access_token (audience = MCP custom AS).
+      // We store this MCP access_token instead of the org-AS access_token, since the
+      // MCP server validates against the custom AS issuer/audience.
+      let mcpAccessToken: string;
+      try {
+        mcpAccessToken = await exchangeForMcpAccessToken(tokens.id_token);
+        console.log("XAA: obtained MCP access token for", userInfo.email);
+      } catch (err) {
+        console.error("XAA token exchange failed:", err);
+        res.status(500).send(`MCP token exchange failed: ${err instanceof Error ? err.message : err}`);
+        return;
+      }
+
       // Store in session
-      req.session.accessToken = tokens.access_token;
+      req.session.accessToken = mcpAccessToken;
       req.session.idToken = tokens.id_token;
       req.session.user = {
         email: userInfo.email,

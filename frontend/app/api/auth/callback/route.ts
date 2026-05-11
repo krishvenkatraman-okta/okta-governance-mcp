@@ -49,7 +49,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { config } from '@/lib/config';
 import { getSession } from '@/lib/session';
-import { buildUserClientAssertion } from '@/lib/user-client-assertion';
 import { decodeJwt } from 'jose';
 import { setUserAccessToken } from '@/lib/token-cookies';
 
@@ -130,22 +129,23 @@ export async function GET(request: NextRequest) {
 
     console.log('[Auth Callback] Code verifier retrieved from session');
 
-    // 3. Build signed client assertion for USER OAuth client
+    // 3. Exchange authorization code for tokens.
+    // Application authenticates via client_secret_post (PKCE provides
+    // additional verification). The Application is configured for
+    // client_secret in Okta; private_key_jwt is reserved for the agent's
+    // ID-JAG signing on the next step.
     const tokenEndpoint = config.okta.orgAuthServer.tokenEndpoint;
-    const clientAssertion = await buildUserClientAssertion({
-      audience: tokenEndpoint,
-    });
-
-    console.log('[Auth Callback] Client assertion generated successfully');
-
-    // 4. Exchange authorization code for tokens
+    const clientSecret = config.okta.userOAuthClient.clientSecret;
+    if (!clientSecret) {
+      throw new Error('OKTA_USER_OAUTH_CLIENT_SECRET is not configured');
+    }
     const requestBody = new URLSearchParams({
       grant_type: 'authorization_code',
       code: code,
       redirect_uri: config.oauth.redirectUri,
       code_verifier: codeVerifier,
-      client_assertion_type: 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer',
-      client_assertion: clientAssertion,
+      client_id: config.okta.userOAuthClient.clientId,
+      client_secret: clientSecret,
     });
 
     console.log('[Auth Callback] Exchanging code for tokens at ORG auth server');
