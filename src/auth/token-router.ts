@@ -57,6 +57,14 @@ function detectTokenType(token: string): TokenType {
       return 'ORG_OR_DEFAULT_AUTH_SERVER';
     }
 
+    // Check for bare Org Auth Server issuer (https://{domain} with no /oauth2/ path)
+    // This is the issuer for tokens from the Org Authorization Server
+    const orgUrl = `https://${config.okta.domain}`;
+    if (issuer === orgUrl) {
+      console.log('[TokenRouter] Detected ORG_OR_DEFAULT_AUTH_SERVER token (bare domain issuer)');
+      return 'ORG_OR_DEFAULT_AUTH_SERVER';
+    }
+
     console.warn('[TokenRouter] Unknown issuer:', issuer);
     console.warn('[TokenRouter] Expected issuers:', {
       customAuthServer: config.okta.accessToken.issuer,

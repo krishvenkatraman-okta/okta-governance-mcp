@@ -19,33 +19,63 @@ import type { OktaAccessToken, AccessTokenValidationResult } from '../types/inde
  *
  * Fetches the public key for token signature verification.
  * Uses kid (key ID) from JWT header to identify the correct key.
+ * Supports both custom auth server and Org auth server JWKS endpoints.
  */
-function getKey(header: jwt.JwtHeader, callback: jwt.SigningKeyCallback): void {
-  if (!header.kid) {
-    callback(new Error('Missing kid in JWT header'));
-    return;
+function getKeyForJwksUri(jwksUri: string) {
+  return function getKey(header: jwt.JwtHeader, callback: jwt.SigningKeyCallback): void {
+    if (!header.kid) {
+      callback(new Error('Missing kid in JWT header'));
+      return;
+    }
+
+    const client = getJwksClient(jwksUri);
+
+    client.getSigningKey(header.kid, (err, key) => {
+      if (err) {
+        console.error('[OAuthValidator] JWKS key fetch failed:', {
+          kid: header.kid?.substring(0, 8) + '...',
+          jwksUri,
+          error: err.message,
+        });
+        callback(err);
+        return;
+      }
+
+      const signingKey = key?.getPublicKey();
+      if (!signingKey) {
+        callback(new Error('Failed to extract public key from JWKS'));
+        return;
+      }
+
+      callback(null, signingKey);
+    });
+  };
+}
+
+/**
+ * Resolve validation parameters based on token issuer.
+ * Org AS tokens use the Org JWKS and accept any audience.
+ * Custom AS tokens use the configured JWKS and audience.
+ */
+function resolveValidationParams(token: string): { jwksUri: string; issuer: string; audience?: string } {
+  const decoded = jwt.decode(token) as any;
+  const issuer = decoded?.iss || '';
+  const orgUrl = `https://${config.okta.domain}`;
+
+  if (issuer === orgUrl || issuer.includes('/oauth2/v1') || issuer.includes('/oauth2/default')) {
+    // Org Auth Server token — use Org JWKS, no audience check (Org AS tokens use cid as aud)
+    return {
+      jwksUri: `${orgUrl}/oauth2/v1/keys`,
+      issuer: issuer,
+    };
   }
 
-  const client = getJwksClient(config.okta.oauth.jwksUri);
-
-  client.getSigningKey(header.kid, (err, key) => {
-    if (err) {
-      console.error('[OAuthValidator] JWKS key fetch failed:', {
-        kid: header.kid?.substring(0, 8) + '...',
-        error: err.message,
-      });
-      callback(err);
-      return;
-    }
-
-    const signingKey = key?.getPublicKey();
-    if (!signingKey) {
-      callback(new Error('Failed to extract public key from JWKS'));
-      return;
-    }
-
-    callback(null, signingKey);
-  });
+  // Custom auth server — use configured JWKS and audience
+  return {
+    jwksUri: config.okta.oauth.jwksUri,
+    issuer: config.okta.oauth.issuer,
+    audience: config.okta.oauth.audience,
+  };
 }
 
 /**
@@ -72,18 +102,27 @@ export async function validateOAuthAccessToken(token: string): Promise<AccessTok
     };
   }
 
-  console.log('[OAuthValidator] Validating OAuth access token');
+  const params = resolveValidationParams(token);
+  console.log('[OAuthValidator] Validating OAuth access token', {
+    issuer: params.issuer,
+    jwksUri: params.jwksUri,
+    hasAudience: !!params.audience,
+  });
 
   return new Promise((resolve) => {
+    const verifyOptions: jwt.VerifyOptions & { issuer: string; audience?: string } = {
+      issuer: params.issuer,
+      algorithms: ['RS256'],
+      clockTolerance: 300, // 5 minutes clock skew tolerance
+    };
+    if (params.audience) {
+      verifyOptions.audience = params.audience;
+    }
+
     jwt.verify(
       token,
-      getKey,
-      {
-        issuer: config.okta.oauth.issuer,
-        audience: config.okta.oauth.audience,
-        algorithms: ['RS256'],
-        clockTolerance: 300, // 5 minutes clock skew tolerance
-      },
+      getKeyForJwksUri(params.jwksUri),
+      verifyOptions,
       (err, decoded) => {
         if (err) {
           console.warn('[OAuthValidator] Validation failed:', {
