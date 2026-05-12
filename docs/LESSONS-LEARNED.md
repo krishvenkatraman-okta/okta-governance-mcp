@@ -176,3 +176,31 @@ The OIE TOTP verification page input field does not use the selector you would e
 | `input[autocomplete="one-time-code"]` | No |
 
 Use the visible text input selector for reliable TOTP entry in headless automation.
+
+### 20. End-user reviewItems/me requires `reviewerLevelId` query parameter
+
+The `GET /api/v1/governance/campaigns/{id}/reviewItems/me` endpoint requires `reviewerLevelId` as a query parameter to return items at a specific reviewer level. Without it, the API only returns items at the user's highest assigned level — which may be empty or contain very few items.
+
+**Symptom:** API returns only 1-3 items when the reviewer has 100+ items assigned. Items at Level 1 are invisible.
+
+**Discovery:** Playwright network trace of the Access Certification Reviews UI showed it calls:
+```
+?decision=UNREVIEWED&reviewerLevelId=ONE&sortBy=resourceId&sortBy=principal.lastName&sortOrder=ASC&sortOrder=ASC&limit=50
+```
+
+**Fix:** Query each assigned reviewer level separately. Get `assignedReviewerLevels` from `campaigns/me`, then call `reviewItems/me?reviewerLevelId={level}&decision=UNREVIEWED` for each level and merge results.
+
+**Also discovered:** The UI uses `decision=UNREVIEWED` as a query parameter, NOT as an OData `filter` expression. These are different parameters.
+
+### 21. New endpoints discovered from UI network trace
+
+| Endpoint | Purpose |
+|----------|---------|
+| `GET /campaigns/{id}/my?reviewCount=true` | Reviewer-specific campaign detail |
+| `GET /campaigns/{id}/resources/me?includeOnlyResourcesInReviews=true` | Resources in the campaign for this reviewer |
+| `GET /campaigns/{id}/rules/me?limit=200` | Campaign rules for this reviewer |
+| `GET /campaigns/{id}/stats/my?reviewerLevelId=ONE` | Stats per reviewer level |
+| `GET /campaigns/{id}/smart-review/config/me` | AI smart review configuration |
+| `GET /campaigns/{id}/reviewItems/me?after=50&limit=50` | Pagination via `after` cursor |
+
+All endpoints use the Org Auth Server token and the `/api/v1/governance/` base path.

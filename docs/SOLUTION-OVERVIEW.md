@@ -136,7 +136,7 @@ These three tools form the core certification review workflow. All require the r
 Lists the reviewer's active certification campaigns and review items.
 
 - **Without `campaignId`**: Returns active campaigns assigned to the reviewer with summary counts (pending, approved, revoked items), status, due dates, and reviewer level.
-- **With `campaignId`**: Returns individual review items with rich contextual data for each:
+- **With `campaignId`**: Queries each of the reviewer's assigned levels (e.g., Level ONE and Level TWO) separately via `reviewerLevelId` parameter, then merges results. This is required because the end-user API only returns items for the explicitly requested level. Returns rich contextual data for each item:
   - Principal profile (name, email, status)
   - Resource/application under review
   - Active entitlements and their values
@@ -146,6 +146,7 @@ Lists the reviewer's active certification campaigns and review items.
   - Okta's AI recommendation (APPROVE/REVOKE)
   - SOD conflict count
 - **Filters**: `status` (UNREVIEWED, APPROVE, REVOKE), `search` (free-text), `sortBy`, `limit`
+- **Important API detail**: The `/reviewItems/me` endpoint requires `reviewerLevelId` as a query parameter. Without it, the API defaults to the highest assigned level and may return far fewer items than expected. The tool handles this automatically by querying all assigned levels.
 
 #### 2. `get_certification_review_detail`
 

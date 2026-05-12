@@ -123,13 +123,101 @@ paths:
                 items:
                   $ref: '#/components/schemas/EndUserCampaign'
 
+  /api/v1/governance/campaigns/{campaignId}/my:
+    get:
+      operationId: getMyCampaignDetail
+      summary: Get reviewer-specific campaign detail
+      description: Detailed campaign info for the authenticated reviewer, including review counts.
+      tags: [End-User Campaigns]
+      security:
+        - userOAuth: [okta.governance.reviewer.read]
+      parameters:
+        - name: campaignId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: reviewCount
+          in: query
+          schema:
+            type: boolean
+      responses:
+        '200':
+          description: Campaign detail for reviewer
+
+  /api/v1/governance/campaigns/{campaignId}/stats/my:
+    get:
+      operationId: getMyCampaignStats
+      summary: Get review statistics per reviewer level
+      tags: [End-User Campaigns]
+      security:
+        - userOAuth: [okta.governance.reviewer.read]
+      parameters:
+        - name: campaignId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: reviewerLevelId
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Review statistics for the reviewer at the specified level
+
+  /api/v1/governance/campaigns/{campaignId}/resources/me:
+    get:
+      operationId: getMyCampaignResources
+      summary: List resources in the campaign for the current reviewer
+      tags: [End-User Review Items]
+      security:
+        - userOAuth: [okta.governance.reviewer.read]
+      parameters:
+        - name: campaignId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: includeOnlyResourcesInReviews
+          in: query
+          schema:
+            type: boolean
+            default: true
+      responses:
+        '200':
+          description: Resources assigned to reviewer in this campaign
+
+  /api/v1/governance/campaigns/{campaignId}/smart-review/config/me:
+    get:
+      operationId: getSmartReviewConfig
+      summary: Get AI smart review configuration for the reviewer
+      tags: [End-User Review Items]
+      security:
+        - userOAuth: [okta.governance.reviewer.read]
+      parameters:
+        - name: campaignId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Smart review (AI) configuration for this campaign
+
   /api/v1/governance/campaigns/{campaignId}/reviewItems/me:
     get:
       operationId: listMyReviewItems
       summary: List review items assigned to the current reviewer
       description: |
         Returns review items for a specific campaign where the authenticated user
-        is the reviewer. Includes rich contextual data: risk items, SOD conflicts,
+        is the reviewer. **IMPORTANT**: You MUST pass `reviewerLevelId` as a query
+        parameter to get items at a specific level. Without it, the API may only
+        return items at the highest assigned level. Get valid values from the
+        campaign's `assignedReviewerLevels` via `GET /campaigns/me`.
+
+        Includes rich contextual data: risk items, SOD conflicts,
         AI recommendations, entitlement details, and group memberships.
       tags: [End-User Review Items]
       security:
@@ -145,18 +233,37 @@ paths:
           schema:
             type: integer
             default: 50
+        - name: reviewerLevelId
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [ONE, TWO, THREE]
+          description: |
+            **REQUIRED for correct results.** Specifies which reviewer level to
+            return items for. Without this, the API may only return items at the
+            user's highest assigned level. Get valid values from the campaign's
+            `assignedReviewerLevels` array via `GET /campaigns/me`.
+        - name: decision
+          in: query
+          schema:
+            type: string
+            enum: [UNREVIEWED, APPROVE, REVOKE]
+          description: |
+            Filter by decision status. Use this as a query parameter (NOT as an
+            OData filter expression). The Okta UI uses `decision=UNREVIEWED`.
         - name: after
           in: query
           schema:
             type: integer
-          description: Cursor for pagination (from Link header `rel="next"`).
+          description: Cursor for pagination (from Link header `rel="next"`). Use the numeric value from the `after` param in the Link URL.
         - name: filter
           in: query
           schema:
             type: string
           description: |
-            OData filter expression. Supported fields:
-            - `decision eq "UNREVIEWED"` / `"APPROVE"` / `"REVOKE"`
+            OData filter expression (separate from the `decision` query param).
+            May support additional field-level filtering.
         - name: search
           in: query
           schema:
