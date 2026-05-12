@@ -266,9 +266,21 @@ export const governanceClient = {
     listMyReviewItems: async (
       campaignId: string,
       userToken: string,
-      options?: { filter?: string; search?: string; sortBy?: string; sortOrder?: string; limit?: number; after?: number }
+      options?: {
+        filter?: string;
+        search?: string;
+        sortBy?: string;
+        sortOrder?: string;
+        limit?: number;
+        after?: number;
+        reviewerLevelId?: string;
+        decision?: string;
+      }
     ): Promise<any[]> => {
       const params = new URLSearchParams();
+      // The UI uses decision= as a query param (not OData filter) alongside reviewerLevelId
+      if (options?.decision) params.append('decision', options.decision);
+      if (options?.reviewerLevelId) params.append('reviewerLevelId', options.reviewerLevelId);
       if (options?.filter) params.append('filter', options.filter);
       if (options?.search) params.append('search', options.search);
       if (options?.sortBy) params.append('sortBy', options.sortBy);

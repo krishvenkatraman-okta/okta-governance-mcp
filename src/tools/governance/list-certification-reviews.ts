@@ -80,15 +80,36 @@ async function handler(
       });
     }
 
-    // List review items for a specific campaign
-    const filter = status ? `decision eq "${status}"` : undefined;
-    const items = await governanceClient.reviews.listMyReviewItems(
-      campaignId,
+    // First get the campaign to find which reviewer levels we're assigned at
+    const campaigns = await governanceClient.reviews.listMyCampaigns(
       context.userToken,
-      { filter, search, sortBy, sortOrder: sortBy ? 'ASC' : undefined, limit }
+      { status: 'READY', limit: 20 }
     );
+    const campaignList = Array.isArray(campaigns) ? campaigns : [];
+    const campaign = campaignList.find((c: any) => c.id === campaignId);
+    const assignedLevels: string[] = campaign?.assignedReviewerLevels || ['ONE'];
 
-    const reviewItems = Array.isArray(items) ? items : [];
+    // Query each assigned reviewer level and merge results
+    // The API requires reviewerLevelId to return items at that level
+    let allItems: any[] = [];
+    for (const level of assignedLevels) {
+      const items = await governanceClient.reviews.listMyReviewItems(
+        campaignId,
+        context.userToken,
+        {
+          decision: status || 'UNREVIEWED',
+          reviewerLevelId: level,
+          search,
+          sortBy,
+          sortOrder: sortBy ? 'ASC' : undefined,
+          limit,
+        }
+      );
+      const levelItems = Array.isArray(items) ? items : [];
+      allItems = allItems.concat(levelItems);
+    }
+
+    const reviewItems = allItems;
 
     // Simplify for the LLM — include the rich contextual data
     // IMPORTANT: Every item returned by this API is assigned to the authenticated
