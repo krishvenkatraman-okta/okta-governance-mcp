@@ -26,6 +26,12 @@ import { manageGroupMembershipTool } from './governance/manage-group-membership.
 import { manageGroupCampaignsTool } from './governance/manage-group-campaigns.js';
 import { createDelegatedAccessRequestTool } from './governance/delegated-access-request.js';
 
+// Advanced analytics tools
+import { mineCandidateRolesTool } from './governance/mine-candidate-roles.js';
+import { detectEntitlementOutliersTool } from './governance/detect-entitlement-outliers.js';
+import { explainUserAccessTool } from './governance/explain-user-access.js';
+import { generateSmartCampaignTool } from './governance/generate-smart-campaign.js';
+
 // Certification review tools
 import { listMyCertificationReviewsTool } from './governance/list-certification-reviews.js';
 import { getCertificationReviewDetailTool } from './governance/get-certification-review-detail.js';
@@ -64,6 +70,12 @@ export const allTools: ToolDefinition[] = [
   listGroupMembersTool,
   manageGroupMembershipTool,
   manageGroupCampaignsTool,
+
+  // Advanced analytics tools
+  mineCandidateRolesTool,
+  detectEntitlementOutliersTool,
+  explainUserAccessTool,
+  generateSmartCampaignTool,
 
   // Certification review tools
   listMyCertificationReviewsTool,

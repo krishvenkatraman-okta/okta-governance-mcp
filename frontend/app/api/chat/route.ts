@@ -1176,7 +1176,25 @@ const ALLOWED_TOOLS = [
   'generate_access_review_candidates',
   'get_tool_requirements',
   'list_available_tools_for_current_user',
+  // Advanced governance analytics tools (Phase 2). Read-only, except
+  // generate_smart_campaign which only writes when dryRun=false.
+  'mine_candidate_roles',
+  'detect_entitlement_outliers',
+  'explain_user_access',
+  'generate_smart_campaign',
 ];
+
+/**
+ * Names of tools whose outputs the chat UI renders as a structured
+ * summary card (`ToolResultSummary`) rather than raw text. Kept in sync
+ * with `frontend/components/chat/ToolResultSummary.tsx`.
+ */
+const SUMMARIZED_TOOLS = new Set<string>([
+  'mine_candidate_roles',
+  'detect_entitlement_outliers',
+  'explain_user_access',
+  'generate_smart_campaign',
+]);
 
 // Tool definitions for LiteLLM (OpenAI format)
 const TOOL_DEFINITIONS = [
@@ -1363,6 +1381,124 @@ const TOOL_DEFINITIONS = [
       parameters: {
         type: 'object',
         properties: {},
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'mine_candidate_roles',
+      description:
+        'Discover candidate roles by clustering users with similar access patterns within a scope. Returns proposed roles ranked by confidence with member lists and common access sets. Outputs are PROPOSALS — group creation is a separate action.',
+      parameters: {
+        type: 'object',
+        properties: {
+          scopeType: {
+            type: 'string',
+            enum: ['app', 'group', 'department', 'all'],
+            description: 'Scope of users to mine.',
+          },
+          scopeId: {
+            type: 'string',
+            description: 'Required unless scopeType is "all". App ID, Group ID, or department name.',
+          },
+          minClusterSize: { type: 'number', description: 'Default 5.' },
+          similarityThreshold: { type: 'number', description: '0-1, default 0.7.' },
+          commonAccessThreshold: { type: 'number', description: '0-1, default 0.8.' },
+          maxResults: { type: 'number', description: 'Default 10.' },
+        },
+        required: ['scopeType'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'detect_entitlement_outliers',
+      description:
+        'Identify users whose access deviates significantly from their peer group (default: same department + title). Returns ranked list of users with outlier entitlements and per-item peer coverage stats.',
+      parameters: {
+        type: 'object',
+        properties: {
+          scopeType: {
+            type: 'string',
+            enum: ['app', 'group', 'department', 'all'],
+          },
+          scopeId: { type: 'string' },
+          peerGroupingStrategy: {
+            type: 'string',
+            enum: ['department_title', 'manager', 'department'],
+            description: 'How to bucket peers. Default "department_title".',
+          },
+          outlierThreshold: { type: 'number', description: '0-1, default 0.10.' },
+          minPeerGroupSize: { type: 'number', description: 'Default 5.' },
+          maxResults: { type: 'number', description: 'Default 25.' },
+        },
+        required: ['scopeType'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'explain_user_access',
+      description:
+        'Trace and explain in plain English how a specific user came to have access to a target (app, entitlement, or group). Returns all access paths with grant timestamps, granters, and rule expressions where applicable.',
+      parameters: {
+        type: 'object',
+        properties: {
+          userId: { type: 'string', description: 'User ID or login (email).' },
+          targetType: {
+            type: 'string',
+            enum: ['app', 'entitlement', 'group'],
+          },
+          targetId: { type: 'string' },
+          entitlementAppId: {
+            type: 'string',
+            description:
+              'Required when targetType="entitlement" — Governance Grants API is keyed by (user, app).',
+          },
+          includeRedundantPaths: { type: 'boolean', description: 'Default true.' },
+        },
+        required: ['userId', 'targetType', 'targetId'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'generate_smart_campaign',
+      description:
+        'Build a certification campaign scoped only to anomalies, outliers, dormant access, and recent grants — not blanket reviews. Defaults to dryRun=true (preview); set dryRun=false to actually create the campaign in Okta.',
+      parameters: {
+        type: 'object',
+        properties: {
+          scopeType: {
+            type: 'string',
+            enum: ['app', 'group', 'department', 'all'],
+          },
+          scopeId: { type: 'string' },
+          includeRules: {
+            type: 'object',
+            properties: {
+              outliers: { type: 'boolean' },
+              dormantAccess: { type: 'boolean' },
+              directAssignments: { type: 'boolean' },
+              recentGrants: { type: 'boolean' },
+            },
+            additionalProperties: false,
+          },
+          reviewerStrategy: {
+            type: 'string',
+            enum: ['manager', 'app_owner', 'resource_owner'],
+          },
+          inactivityDays: { type: 'number' },
+          recentGrantsDays: { type: 'number' },
+          campaignName: { type: 'string' },
+          durationInDays: { type: 'number' },
+          dryRun: { type: 'boolean', description: 'Default true.' },
+        },
+        required: ['scopeType'],
       },
     },
   },
@@ -4333,10 +4469,33 @@ if (
           // WORKAROUND: Return tool result directly instead of going back to LLM
           // LiteLLM/Bedrock has issues with tool result format
           console.log('[Chat] Returning tool result directly (skipping LLM iteration 2)');
-          return NextResponse.json({
+
+          // For the advanced-governance tools the UI renders a structured
+          // summary card, so we attach the parsed object alongside the raw
+          // text. The text remains the canonical `message` for backward
+          // compatibility with any caller that still reads it.
+          const responseBody: {
+            message: string;
+            toolCalls: number;
+            toolResults?: Array<{ toolName: string; output: unknown }>;
+          } = {
             message: toolResult,
             toolCalls: assistantMessage.tool_calls.length,
-          });
+          };
+
+          if (SUMMARIZED_TOOLS.has(toolName)) {
+            try {
+              const parsed = JSON.parse(toolResult);
+              if (!parsed?.error) {
+                responseBody.toolResults = [{ toolName, output: parsed }];
+              }
+            } catch {
+              // Tool returned non-JSON (e.g. an error string) — leave
+              // toolResults unset; the chat will fall back to raw text.
+            }
+          }
+
+          return NextResponse.json(responseBody);
 
           // Original code (commented out due to Bedrock incompatibility):
           // Add tool result to messages

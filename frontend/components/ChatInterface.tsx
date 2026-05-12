@@ -8,19 +8,38 @@
  * - Suggested prompts for common tasks
  * - Tool execution through chat
  * - User-friendly result rendering
+ * - Structured summary cards for advanced-governance tool results, with
+ *   a "view details" handoff to the InsightsHub modal
  */
 
 'use client';
 
 import { useState } from 'react';
 import { uiConfig } from '@/lib/ui-config';
+import ToolResultSummary, {
+  isSummarizedTool,
+  type SummarizedToolName,
+} from '@/components/chat/ToolResultSummary';
+import type { InsightsInitialResult } from '@/components/insights';
+
+interface ToolResultEntry {
+  toolName: string;
+  output: unknown;
+}
 
 interface Message {
   role: 'user' | 'assistant';
   content: string;
+  toolResults?: ToolResultEntry[];
 }
 
 interface ChatInterfaceProps {
+  /**
+   * Called when a tool-result summary card's "view details" button is
+   * clicked. The handler should open the InsightsHub modal with the
+   * payload pre-loaded into the matching tab.
+   */
+  onOpenInsights?: (initial: InsightsInitialResult) => void;
   onClose?: () => void;
 }
 
@@ -31,7 +50,14 @@ const SUGGESTED_PROMPTS = [
   "What governance tools are available?",
 ];
 
-export default function ChatInterface({ onClose }: ChatInterfaceProps) {
+const TOOL_TO_TAB: Record<SummarizedToolName, InsightsInitialResult['tab']> = {
+  mine_candidate_roles: 'discover',
+  detect_entitlement_outliers: 'risks',
+  explain_user_access: 'explain',
+  generate_smart_campaign: 'campaigns',
+};
+
+export default function ChatInterface({ onOpenInsights }: ChatInterfaceProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -64,6 +90,7 @@ export default function ChatInterface({ onClose }: ChatInterfaceProps) {
       const assistantMessage: Message = {
         role: 'assistant',
         content: data.message,
+        toolResults: Array.isArray(data.toolResults) ? data.toolResults : undefined,
       };
 
       setMessages([...newMessages, assistantMessage]);
@@ -85,6 +112,15 @@ export default function ChatInterface({ onClose }: ChatInterfaceProps) {
 
   const handleSuggestedPrompt = (prompt: string) => {
     sendMessage(prompt);
+  };
+
+  const handleViewDetails = (entry: ToolResultEntry) => {
+    if (!onOpenInsights) return;
+    if (!isSummarizedTool(entry.toolName)) return;
+    onOpenInsights({
+      tab: TOOL_TO_TAB[entry.toolName],
+      output: entry.output,
+    } as InsightsInitialResult);
   };
 
   return (
@@ -133,23 +169,49 @@ export default function ChatInterface({ onClose }: ChatInterfaceProps) {
           </div>
         )}
 
-        {messages.map((message, idx) => (
-          <div
-            key={idx}
-            className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
-          >
+        {messages.map((message, idx) => {
+          // Surface a structured card whenever the assistant returned a
+          // summarized tool result; everything else renders as before.
+          const summarized = (message.toolResults ?? []).filter((r) =>
+            isSummarizedTool(r.toolName),
+          );
+          const hasSummaryCards = message.role === 'assistant' && summarized.length > 0;
+
+          if (hasSummaryCards) {
+            return (
+              <div key={idx} className="flex justify-start">
+                <div className="max-w-[80%] space-y-3">
+                  {summarized.map((entry, sIdx) => (
+                    <ToolResultSummary
+                      key={`${idx}-${sIdx}`}
+                      toolName={entry.toolName}
+                      toolOutput={entry.output}
+                      onViewDetails={() => handleViewDetails(entry)}
+                    />
+                  ))}
+                </div>
+              </div>
+            );
+          }
+
+          return (
             <div
-              className="max-w-[80%] rounded-lg p-3"
-              style={{
-                backgroundColor:
-                  message.role === 'user' ? uiConfig.colors.primary : uiConfig.colors.gray100,
-                color: message.role === 'user' ? 'white' : uiConfig.colors.gray900,
-              }}
+              key={idx}
+              className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
             >
-              <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+              <div
+                className="max-w-[80%] rounded-lg p-3"
+                style={{
+                  backgroundColor:
+                    message.role === 'user' ? uiConfig.colors.primary : uiConfig.colors.gray100,
+                  color: message.role === 'user' ? 'white' : uiConfig.colors.gray900,
+                }}
+              >
+                <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
 
         {loading && (
           <div className="flex justify-start">

@@ -56,3 +56,7 @@ terraform/*.tfstate*
 terraform/tfplan
 terraform/*.tfvars
 !terraform/terraform.tfvars.example
+
+# Local-only working files (not for commit)
+CLAUDE.md
+docs/prompts/

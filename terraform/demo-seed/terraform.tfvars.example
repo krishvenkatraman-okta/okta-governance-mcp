@@ -1,0 +1,14 @@
+# Copy to terraform.tfvars and fill in. The wrapper script
+# `scripts/seed-tenant.sh` reads .env and produces these automatically — only
+# fill this in by hand if you're running `terraform` directly.
+
+okta_org_name         = "joe-wf-oie-demos"
+okta_base_url         = "oktapreview.com"
+okta_client_id        = "0oaXXXXXXXXXXXXXX"
+okta_private_key_path = "../../keys/okta-service-app.pem"
+okta_private_key_id   = "kid-from-okta-admin-ui"
+
+# Set to true if `terraform apply` errors on okta_entitlement with
+# 403 / feature not enabled — the seed will succeed without entitlements
+# and the analytics layer falls back to user/group/app-level signals.
+skip_entitlements = false

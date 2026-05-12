@@ -17,6 +17,7 @@ import ExecutionTracePanel from '@/components/ExecutionTracePanel';
 import DebugDrawer from '@/components/DebugDrawer';
 import ToolExplorer from '@/components/ToolExplorer';
 import GovernanceChecks from '@/components/GovernanceChecks';
+import { InsightsHub, type InsightsInitialResult } from '@/components/insights';
 import { uiConfig } from '@/lib/ui-config';
 
 interface TokenState {
@@ -72,6 +73,15 @@ export default function AgentPage() {
   const [debugMode, setDebugMode] = useState(false);
   const [showToolExplorer, setShowToolExplorer] = useState(false);
   const [showGovernanceChecks, setShowGovernanceChecks] = useState(false);
+  const [showInsights, setShowInsights] = useState(false);
+  // When the chat opens InsightsHub via a ToolResultSummary card, this
+  // slot carries the (tab, output) pair so the hub renders pre-loaded.
+  const [insightsInitialResult, setInsightsInitialResult] =
+    useState<InsightsInitialResult | null>(null);
+  // Bumped every time a new chat-driven result is set so React remounts
+  // InsightsHub. Avoids the "setState in effect" anti-pattern inside
+  // the hub when the parent swaps in a different pre-load.
+  const [insightsKey, setInsightsKey] = useState(0);
 
   // Check token state on mount
   useEffect(() => {
@@ -405,7 +415,13 @@ export default function AgentPage() {
       <main className="flex-1 flex overflow-hidden">
         {/* Chat Interface - Primary */}
         <div className="flex-1 flex flex-col">
-          <ChatInterface />
+          <ChatInterface
+            onOpenInsights={(initial) => {
+              setInsightsInitialResult(initial);
+              setInsightsKey((k) => k + 1);
+              setShowInsights(true);
+            }}
+          />
         </div>
 
         {/* Execution Trace Panel - Right Side */}
@@ -441,6 +457,18 @@ export default function AgentPage() {
         📚 Browse Tools
       </button>
 
+      {/* Insights Hub Button - Floating (stacked above Browse Tools) */}
+      <button
+        onClick={() => setShowInsights(true)}
+        className="fixed bottom-36 right-4 px-4 py-3 rounded-lg shadow-lg text-sm font-medium flex items-center gap-2"
+        style={{
+          backgroundColor: uiConfig.colors.darkBlue,
+          color: 'white',
+        }}
+      >
+        ✨ Insights
+      </button>
+
       {/* Tool Explorer Modal */}
       {showToolExplorer && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
@@ -453,6 +481,19 @@ export default function AgentPage() {
       {/* Governance Checks Modal */}
       {showGovernanceChecks && (
         <GovernanceChecks onDismiss={() => setShowGovernanceChecks(false)} />
+      )}
+
+      {/* Insights Hub Modal */}
+      {showInsights && (
+        <InsightsHub
+          key={insightsKey}
+          onClose={() => {
+            setShowInsights(false);
+            setInsightsInitialResult(null);
+          }}
+          initialTab={insightsInitialResult?.tab}
+          initialResult={insightsInitialResult ?? undefined}
+        />
       )}
     </div>
   );

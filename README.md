@@ -1,4 +1,4 @@
-# Okta Governance MCP Server
+aa# Okta Governance MCP Server
 
 AI-driven governance platform using Okta as the identity and governance control plane, implementing the Model Context Protocol (MCP) with MAS/MRS separation.
 
@@ -142,6 +142,23 @@ The MRS initially exposes read-only metadata tools:
 - `get_operation_requirements`: Get requirements for a specific operation
 - `explain_why_tool_is_unavailable`: Explain why a tool is not available to the user
 - `list_available_tools_for_current_user`: List all tools available to the current user
+
+## Advanced Governance Capabilities
+
+Four analytics-driven MCP tools build on a shared access-graph snapshot to surface insights that go beyond per-API CRUD:
+
+- `mine_candidate_roles`: Cluster users with similar access into proposed roles, ranked by cohesion + size confidence.
+- `detect_entitlement_outliers`: Flag users whose entitlements deviate from their peer group (department/title, manager, or department).
+- `explain_user_access`: Trace and narrate every path by which a user holds access to a target app, group, or entitlement.
+- `generate_smart_campaign`: Compose outliers, dormant access, direct assignments, and recent grants into a previewable certification campaign.
+
+End-to-end demo (live Okta required):
+
+```bash
+DEMO_APP_ID=0oaXXXXXXXXXXXX npm run demo-advanced
+```
+
+The script builds an access graph for the supplied app, runs each analytics function in turn, pretty-prints the output, and reports per-step elapsed time. Full request/response shapes and authorization plumbing live in [`docs/Okta_Governance_MCP_Spec_Addendum_Advanced_Capabilities.md`](docs/Okta_Governance_MCP_Spec_Addendum_Advanced_Capabilities.md).
 
 ## Project Structure
 

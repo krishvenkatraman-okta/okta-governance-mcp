@@ -7,6 +7,22 @@
 
 import { config } from '../config/index.js';
 import { getServiceAccessToken } from './service-client.js';
+import type { OktaGroup } from '../types/index.js';
+
+/**
+ * Extract the `next` page URL from an Okta Link header.
+ *
+ * Okta uses RFC 5988 Link headers for cursor-based pagination.
+ */
+function parseNextLink(linkHeader: string | null): string | null {
+  if (!linkHeader) return null;
+  const parts = linkHeader.split(',');
+  for (const part of parts) {
+    const match = part.match(/<([^>]+)>\s*;\s*rel="next"/);
+    if (match) return match[1];
+  }
+  return null;
+}
 
 export interface OktaUser {
   id: string;
@@ -175,10 +191,146 @@ export async function getByIdOrLogin(userIdOrLogin: string): Promise<OktaUser> {
 }
 
 /**
+ * List users matching an Okta SCIM filter.
+ *
+ * Calls `GET /api/v1/users?filter=...` and walks `Link: rel="next"`
+ * pagination until exhausted (capped at `maxPages`).
+ *
+ * @param filter - Okta filter expression, e.g.
+ *   `profile.department eq "Sales"` or `status eq "ACTIVE"`
+ * @param pageSize - Per-page limit (default 200, Okta max)
+ * @param maxPages - Page-walk cap (default 25)
+ * @returns All users matching the filter
+ *
+ * @example
+ * ```typescript
+ * const sales = await usersClient.listWithFilter('profile.department eq "Sales"');
+ * const active = await usersClient.listWithFilter('status eq "ACTIVE"');
+ * ```
+ */
+export async function listWithFilter(
+  filter: string,
+  pageSize: number = 200,
+  maxPages: number = 25
+): Promise<OktaUser[]> {
+  const accessToken = await getServiceAccessToken('okta.users.read');
+  const encoded = encodeURIComponent(filter);
+
+  let url: string | null = `https://${config.okta.domain}/api/v1/users?filter=${encoded}&limit=${pageSize}`;
+  const collected: OktaUser[] = [];
+  let pages = 0;
+
+  console.log(`[UsersClient] Listing users with filter: ${filter}`);
+
+  while (url && pages < maxPages) {
+    const response: Response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        Accept: 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('[UsersClient] Failed to list users with filter:', {
+        filter,
+        status: response.status,
+        error: errorText,
+      });
+      throw new Error(`Failed to list users with filter: ${response.status} ${response.statusText}`);
+    }
+
+    const page = (await response.json()) as OktaUser[];
+    collected.push(...page);
+    pages++;
+
+    url = parseNextLink(response.headers.get('link'));
+  }
+
+  if (url && pages >= maxPages) {
+    console.warn('[UsersClient] listWithFilter hit maxPages cap:', {
+      filter,
+      maxPages,
+      collected: collected.length,
+    });
+  }
+
+  console.log(`[UsersClient] Retrieved ${collected.length} user(s) for filter "${filter}" across ${pages} page(s)`);
+
+  return collected;
+}
+
+/**
+ * List the groups a user belongs to.
+ *
+ * Calls `GET /api/v1/users/{userId}/groups`. Pagination follows
+ * Okta's Link-header convention.
+ *
+ * @param userId - User ID
+ * @param pageSize - Per-page limit (default 200)
+ * @param maxPages - Page-walk cap (default 10)
+ * @returns Groups the user is a member of
+ */
+export async function listGroups(
+  userId: string,
+  pageSize: number = 200,
+  maxPages: number = 10
+): Promise<OktaGroup[]> {
+  const accessToken = await getServiceAccessToken(['okta.users.read', 'okta.groups.read']);
+
+  let url: string | null = `https://${config.okta.domain}/api/v1/users/${userId}/groups?limit=${pageSize}`;
+  const collected: OktaGroup[] = [];
+  let pages = 0;
+
+  console.debug('[UsersClient] Listing groups for user:', { userId });
+
+  while (url && pages < maxPages) {
+    const response: Response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        Accept: 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('[UsersClient] Failed to list user groups:', {
+        userId,
+        status: response.status,
+        error: errorText,
+      });
+      throw new Error(`Failed to list user groups: ${response.status} ${response.statusText}`);
+    }
+
+    const page = (await response.json()) as OktaGroup[];
+    collected.push(...page);
+    pages++;
+
+    url = parseNextLink(response.headers.get('link'));
+  }
+
+  if (url && pages >= maxPages) {
+    console.warn('[UsersClient] listGroups hit maxPages cap:', {
+      userId,
+      maxPages,
+      collected: collected.length,
+    });
+  }
+
+  console.debug(`[UsersClient] Retrieved ${collected.length} group(s) for user ${userId}`);
+
+  return collected;
+}
+
+/**
  * Users API client
  */
 export const usersClient = {
   getUserById,
   findUserByUsernameOrEmail,
   getByIdOrLogin,
+  listWithFilter,
+  listGroups,
 };

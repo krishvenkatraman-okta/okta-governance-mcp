@@ -6,7 +6,48 @@
 
 import { getServiceAccessToken } from './service-client.js';
 import { config } from '../config/index.js';
-import type { OktaGroup, OktaUser } from '../types/index.js';
+import type { OktaApp, OktaGroup, OktaUser } from '../types/index.js';
+
+/**
+ * Extract the `next` page URL from an Okta Link header.
+ *
+ * Okta uses RFC 5988 Link headers for cursor-based pagination.
+ */
+function parseNextLink(linkHeader: string | null): string | null {
+  if (!linkHeader) return null;
+  const parts = linkHeader.split(',');
+  for (const part of parts) {
+    const match = part.match(/<([^>]+)>\s*;\s*rel="next"/);
+    if (match) return match[1];
+  }
+  return null;
+}
+
+/**
+ * A group rule (Okta Management API: `GET /api/v1/groups/rules`).
+ *
+ * The shape is loosely typed because the rule expression is opaque (Okta
+ * Expression Language). We surface the fields callers actually use for
+ * explainability — `id`, `name`, the `expression.value`, and the
+ * `assignUserToGroups` action.
+ */
+export interface OktaGroupRule {
+  id: string;
+  name: string;
+  status: string;
+  conditions?: {
+    expression?: {
+      value?: string;
+      type?: string;
+    };
+  };
+  actions?: {
+    assignUserToGroups?: {
+      groupIds?: string[];
+    };
+  };
+  [key: string]: unknown;
+}
 
 /**
  * Groups query options
@@ -233,5 +274,126 @@ export const groupsClient = {
   filterByIds(groups: OktaGroup[], groupIds: string[]): OktaGroup[] {
     const idSet = new Set(groupIds);
     return groups.filter((group) => idSet.has(group.id));
+  },
+
+  /**
+   * List apps assigned to a group.
+   *
+   * Calls `GET /api/v1/groups/{groupId}/apps` and walks Link-header
+   * pagination until exhausted. Used by the access explainer to detect
+   * group-mediated app access.
+   *
+   * @param groupId - Group ID
+   * @param pageSize - Per-page limit (default 200)
+   * @param maxPages - Page-walk cap (default 10)
+   * @returns Apps assigned to the group
+   */
+  async listAssignedApps(
+    groupId: string,
+    pageSize: number = 200,
+    maxPages: number = 10
+  ): Promise<OktaApp[]> {
+    const accessToken = await getServiceAccessToken(['okta.groups.read', 'okta.apps.read']);
+
+    let url: string | null = `${config.okta.apiV1}/groups/${groupId}/apps?limit=${pageSize}`;
+    const collected: OktaApp[] = [];
+    let pages = 0;
+
+    console.debug('[GroupsClient] Listing apps assigned to group:', { groupId });
+
+    while (url && pages < maxPages) {
+      const response: Response = await fetch(url, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Accept: 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        const error = await response.text();
+        console.error('[GroupsClient] Failed to list apps for group:', {
+          groupId,
+          status: response.status,
+          error,
+        });
+        throw new Error(`Failed to list apps for group: ${response.status} ${response.statusText}`);
+      }
+
+      const page = (await response.json()) as OktaApp[];
+      collected.push(...page);
+      pages++;
+
+      url = parseNextLink(response.headers.get('link'));
+    }
+
+    if (url && pages >= maxPages) {
+      console.warn('[GroupsClient] listAssignedApps hit maxPages cap:', {
+        groupId,
+        maxPages,
+        collected: collected.length,
+      });
+    }
+
+    console.debug(`[GroupsClient] Retrieved ${collected.length} app(s) for group ${groupId}`);
+
+    return collected;
+  },
+
+  /**
+   * List group rules whose action assigns members to the given group.
+   *
+   * Best-effort: the Management API endpoint
+   * `GET /api/v1/groups/rules?expand=groupIdToGroupNameMap` returns ALL
+   * rules in the org. We filter client-side for rules whose
+   * `actions.assignUserToGroups.groupIds` includes `groupId`.
+   *
+   * Returns `[]` (with a warning) if the request fails — the access
+   * explainer treats rule-mediated paths as best-effort.
+   *
+   * @param groupId - Target group ID
+   * @returns Rules that, when matched, would assign users to this group
+   */
+  async listRulesForGroup(groupId: string): Promise<OktaGroupRule[]> {
+    try {
+      const accessToken = await getServiceAccessToken(['okta.groups.read']);
+      const url = `${config.okta.apiV1}/groups/rules?expand=groupIdToGroupNameMap&limit=200`;
+
+      console.debug('[GroupsClient] Listing group rules:', { groupId });
+
+      const response = await fetch(url, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Accept: 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        const error = await response.text();
+        console.warn('[GroupsClient] Failed to list group rules — returning []:', {
+          groupId,
+          status: response.status,
+          error,
+        });
+        return [];
+      }
+
+      const allRules = (await response.json()) as OktaGroupRule[];
+      const matching = allRules.filter((rule) => {
+        const groupIds = rule.actions?.assignUserToGroups?.groupIds ?? [];
+        return groupIds.includes(groupId);
+      });
+
+      console.debug(
+        `[GroupsClient] Found ${matching.length} rule(s) targeting group ${groupId} (of ${allRules.length} total)`
+      );
+
+      return matching;
+    } catch (error) {
+      console.warn('[GroupsClient] listRulesForGroup failed — returning []:', {
+        groupId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return [];
+    }
   },
 };

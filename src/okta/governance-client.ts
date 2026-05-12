@@ -347,12 +347,71 @@ export const governanceClient = {
   },
 
   /**
-   * Entitlements (placeholder)
+   * Entitlements
    */
   entitlements: {
     list: async () => {
       // TODO: Implement when entitlements tools are created
       throw new Error('Not implemented');
+    },
+
+    /**
+     * List entitlement grants held by a specific user for a specific app.
+     *
+     * Calls the Okta Governance Grants API
+     * (`GET /governance/api/v1/grants?filter=...&include=full_entitlements`)
+     * with a filter pinning both the target app and the target principal.
+     * Each `data[*]` entry can describe either an `ENTITLEMENT-BUNDLE`
+     * grant or an inline entitlement grant; the caller is responsible for
+     * unpacking the bundle/entitlement shape it cares about.
+     *
+     * The Grants endpoint is described in the Postman collection ("List
+     * all grants" under the "Grants" category); if the runtime registry
+     * has not loaded it for any reason, this method still issues the
+     * request — the registry is advisory, not a hard gate.
+     *
+     * @param userId - Okta user ID (the `targetPrincipal.externalId`)
+     * @param appId - Okta application ID (the `target.externalId`)
+     * @param scopes - OAuth scopes to mint a service token under (typically
+     *   `'okta.governance.entitlements.read'`)
+     * @returns Array of grant objects, or an empty array if the API call
+     *   fails in a non-fatal way (e.g. the org has not enabled the
+     *   Governance Grants endpoint yet — we log a warning and degrade
+     *   gracefully so analytics callers can still produce partial results).
+     */
+    listForUser: async (
+      userId: string,
+      appId: string,
+      scopes: string,
+    ): Promise<any[]> => {
+      const filter =
+        `target.externalId eq "${appId}" AND target.type eq "APPLICATION" ` +
+        `AND targetPrincipal.externalId eq "${userId}" AND targetPrincipal.type eq "OKTA_USER"`;
+      const params = new URLSearchParams();
+      params.append('filter', filter);
+      params.append('include', 'full_entitlements');
+      params.append('limit', '200');
+
+      try {
+        const response = await governanceRequest<{ data?: any[] }>(
+          `/governance/api/v1/grants?${params.toString()}`,
+          {
+            method: 'GET',
+            scopes,
+          },
+        );
+        return response.data ?? [];
+      } catch (error) {
+        console.warn(
+          '[GovernanceClient] entitlements API endpoint not yet wired (or call failed) — returning empty grant list:',
+          {
+            userId,
+            appId,
+            error: error instanceof Error ? error.message : String(error),
+          },
+        );
+        return [];
+      }
     },
   },
 };
