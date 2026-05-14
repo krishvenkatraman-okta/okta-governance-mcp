@@ -70,8 +70,14 @@ Rules:
     const content = response.output?.message?.content?.[0]?.text || '';
 
     // Parse the structured JSON response
+    // Strip markdown code fences if the model wraps its JSON in ```json ... ```
+    let jsonContent = content.trim();
+    if (jsonContent.startsWith('```')) {
+      jsonContent = jsonContent.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '');
+    }
+
     try {
-      const parsed = JSON.parse(content);
+      const parsed = JSON.parse(jsonContent);
       return NextResponse.json(parsed);
     } catch {
       return NextResponse.json({ message: content, view: null });

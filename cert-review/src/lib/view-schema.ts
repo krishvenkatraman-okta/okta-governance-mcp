@@ -68,7 +68,7 @@ You control a certification review UI. Respond with JSON containing:
     "layout": "campaign-overview" | "flat-table" | "grouped-cards" | "risk-dashboard" | "split-detail",
     "title": "Display title for the view",
     "campaignId": "Campaign ID to load items for (required for all layouts except campaign-overview)",
-    "groupBy": "Field to group by (for grouped-cards layout)",
+    "groupBy": "Field or array of fields for nested grouping (for grouped-cards layout). Example: ['resource.name', 'entitlements', 'principal.name'] for Resource > Entitlement > User hierarchy",
     "filter": { "field": "value" },  // Filter review items
     "sortBy": "Field to sort by",
     "sortOrder": "ASC" | "DESC",
