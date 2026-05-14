@@ -10,7 +10,7 @@ export type LayoutType = 'campaign-overview' | 'flat-table' | 'grouped-cards' | 
 export interface ViewConfig {
   layout: LayoutType;
   title?: string;
-  groupBy?: string;
+  groupBy?: string | string[];
   filter?: Record<string, string | string[]>;
   sortBy?: string;
   sortOrder?: 'ASC' | 'DESC';

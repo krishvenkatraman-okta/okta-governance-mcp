@@ -152,13 +152,6 @@ export function ViewContainer({
         )}
       </div>
 
-      {/* Debug info - remove after testing */}
-      {process.env.NODE_ENV !== 'production' || true ? (
-        <div className="px-6 py-2 text-xs text-gray-600 border-b border-gray-800 font-mono">
-          layout={viewConfig.layout} | campaigns={campaigns.length} | items={sortedItems.length} | campaignId={viewConfig.campaignId || 'none'}
-        </div>
-      ) : null}
-
       {/* Layout */}
       <div className="flex-1 overflow-auto">
         {viewConfig.layout === 'campaign-overview' && (
