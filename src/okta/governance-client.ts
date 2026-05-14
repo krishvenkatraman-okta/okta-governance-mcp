@@ -8,10 +8,12 @@
 
 import { getServiceAccessToken } from './service-client.js';
 import { config } from '../config/index.js';
+import { resilientFetch, fetchAllPages } from './api-resilience.js';
 
 /**
  * Admin governance API request (/governance/api/v1/)
  * Uses service app token by default; can override with user token.
+ * Now uses resilient fetch with rate limit handling and retry.
  */
 async function governanceRequest<T>(
   endpoint: string,
@@ -26,7 +28,7 @@ async function governanceRequest<T>(
   const accessToken = options.token || await getServiceAccessToken(options.scopes);
   const url = `${config.okta.governanceApi}${endpoint}`;
 
-  const response = await fetch(url, {
+  const response = await resilientFetch(url, {
     method: options.method || 'GET',
     headers: {
       'Authorization': `Bearer ${accessToken}`,
@@ -34,6 +36,7 @@ async function governanceRequest<T>(
       'Accept': 'application/json',
     },
     body: options.body ? JSON.stringify(options.body) : undefined,
+    noRetry: options.method === 'POST' || options.method === 'PUT' || options.method === 'DELETE',
   });
 
   if (!response.ok) {
@@ -47,7 +50,7 @@ async function governanceRequest<T>(
 /**
  * End-user governance API request (/api/v1/governance/)
  * Requires the user's Org Authorization Server token.
- * This is the same API surface the Access Certification Reviews UI uses.
+ * Now uses resilient fetch with rate limit handling and retry.
  */
 async function endUserGovernanceRequest<T>(
   endpoint: string,
@@ -59,7 +62,7 @@ async function endUserGovernanceRequest<T>(
 ): Promise<T> {
   const url = `${config.okta.orgUrl}/api/v1/governance${endpoint}`;
 
-  const response = await fetch(url, {
+  const response = await resilientFetch(url, {
     method: options.method || 'GET',
     headers: {
       'Authorization': `Bearer ${userToken}`,
@@ -67,6 +70,7 @@ async function endUserGovernanceRequest<T>(
       'Accept': 'application/json',
     },
     body: options.body ? JSON.stringify(options.body) : undefined,
+    noRetry: options.method === 'PUT' || options.method === 'POST',
   });
 
   if (!response.ok) {
@@ -277,39 +281,51 @@ export const governanceClient = {
         decision?: string;
       }
     ): Promise<any[]> => {
-      const params = new URLSearchParams();
-      // The UI uses decision= as a query param (not OData filter) alongside reviewerLevelId
-      if (options?.decision) params.append('decision', options.decision);
-      if (options?.reviewerLevelId) params.append('reviewerLevelId', options.reviewerLevelId);
-      if (options?.filter) params.append('filter', options.filter);
-      if (options?.search) params.append('search', options.search);
-      if (options?.sortBy) params.append('sortBy', options.sortBy);
-      if (options?.sortOrder) params.append('sortOrder', options.sortOrder);
-      if (options?.limit) params.append('limit', String(options.limit));
-      if (options?.after) params.append('after', String(options.after));
-      const query = params.toString() ? `?${params.toString()}` : '';
-      return await endUserGovernanceRequest(`/campaigns/${campaignId}/reviewItems/me${query}`, userToken);
+      const url = new URL(`${config.okta.orgUrl}/api/v1/governance/campaigns/${campaignId}/reviewItems/me`);
+      if (options?.decision) url.searchParams.set('decision', options.decision);
+      if (options?.reviewerLevelId) url.searchParams.set('reviewerLevelId', options.reviewerLevelId);
+      if (options?.filter) url.searchParams.set('filter', options.filter);
+      if (options?.search) url.searchParams.set('search', options.search);
+      if (options?.sortBy) url.searchParams.set('sortBy', options.sortBy);
+      if (options?.sortOrder) url.searchParams.set('sortOrder', options.sortOrder);
+
+      // Auto-paginate to get all items (Okta max page size: 200)
+      const pageSize = Math.min(options?.limit || 200, 200);
+      return await fetchAllPages(
+        url.toString(),
+        {
+          'Authorization': `Bearer ${userToken}`,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        pageSize,
+        50, // max 50 pages = 10,000 items safety limit
+      );
     },
 
     /**
      * Submit approve/revoke decisions.
      * PUT /api/v1/governance/campaigns/{campaignId}/reviewItems/me
      */
+    /**
+     * Submit one or more decisions. Accepts single ID or array for batching.
+     */
     submitDecision: async (
       campaignId: string,
-      reviewItemId: string,
+      reviewItemId: string | string[],
       decision: 'APPROVE' | 'REVOKE',
       reviewerLevelId: string,
       note: string | undefined,
       userToken: string
     ): Promise<any> => {
+      const ids = Array.isArray(reviewItemId) ? reviewItemId : [reviewItemId];
       return await endUserGovernanceRequest(
         `/campaigns/${campaignId}/reviewItems/me`,
         userToken,
         {
           method: 'PUT',
           body: {
-            decisions: [{ reviewItemId, decision }],
+            decisions: ids.map(id => ({ reviewItemId: id, decision })),
             reviewerLevelId,
             note: note || '',
           },
