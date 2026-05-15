@@ -79,6 +79,7 @@ function AppContent() {
           messages={messages}
           isLoading={chatLoading}
           onSend={sendMessage}
+          userName={session?.user?.name || session?.user?.email || undefined}
         />
       </div>
 

@@ -30,6 +30,11 @@ export function useChat(campaigns: Campaign[]) {
       });
 
       const data: AgentResponse = await res.json();
+      console.log('[useChat] Raw API response:', JSON.stringify(data).substring(0, 500));
+      console.log('[useChat] Has view:', !!data.view);
+      if (data.view) {
+        console.log('[useChat] View config:', JSON.stringify(data.view));
+      }
 
       const assistantMessage: ChatMessage = {
         role: 'assistant',
@@ -41,6 +46,7 @@ export function useChat(campaigns: Campaign[]) {
       setMessages(prev => [...prev, assistantMessage]);
 
       if (data.view) {
+        console.log('[useChat] Setting viewConfig to:', data.view.layout);
         setViewConfig(data.view);
       }
     } catch (error) {

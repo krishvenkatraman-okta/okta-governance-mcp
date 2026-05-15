@@ -10,19 +10,19 @@ export function useCampaigns() {
 
   useEffect(() => {
     fetch('/api/campaigns')
-      .then(res => {
-        if (!res.ok) {
-          throw new Error(`API error: ${res.status}`);
-        }
-        return res.json();
-      })
+      .then(res => res.json())
       .then(data => {
-        console.log('[useCampaigns] Data:', data);
-        setCampaigns(Array.isArray(data) ? data : []);
+        console.log('[useCampaigns] Response:', JSON.stringify(data).substring(0, 200));
+        if (data.error) {
+          console.error('[useCampaigns] API error:', data);
+          setError(data.error);
+        } else {
+          setCampaigns(Array.isArray(data) ? data : []);
+        }
         setLoading(false);
       })
       .catch(err => {
-        console.error('[useCampaigns] Error:', err);
+        console.error('[useCampaigns] Fetch error:', err);
         setError(err.message);
         setLoading(false);
       });

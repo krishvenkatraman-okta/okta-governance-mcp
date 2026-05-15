@@ -1,16 +1,18 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { Send, Bot, User, Loader2 } from 'lucide-react';
+import { Send, Bot, User, Loader2, LogOut } from 'lucide-react';
+import { signOut } from 'next-auth/react';
 import type { ChatMessage } from '@/lib/types';
 
 interface ChatPanelProps {
   messages: ChatMessage[];
   isLoading: boolean;
   onSend: (message: string) => void;
+  userName?: string;
 }
 
-export function ChatPanel({ messages, isLoading, onSend }: ChatPanelProps) {
+export function ChatPanel({ messages, isLoading, onSend, userName }: ChatPanelProps) {
   const [input, setInput] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -30,13 +32,22 @@ export function ChatPanel({ messages, isLoading, onSend }: ChatPanelProps) {
     <div className="flex flex-col h-full border-r border-gray-800 bg-gray-950">
       {/* Header */}
       <div className="px-4 py-3 border-b border-gray-800">
-        <div className="flex items-center gap-2">
-          <Bot className="w-5 h-5 text-blue-400" />
-          <h2 className="text-sm font-semibold text-gray-200">Certification Assistant</h2>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Bot className="w-5 h-5 text-blue-400" />
+            <h2 className="text-sm font-semibold text-gray-200">Certification Assistant</h2>
+          </div>
+          <button
+            onClick={() => signOut()}
+            className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-300 transition-colors"
+            title="Sign out"
+          >
+            <LogOut className="w-3.5 h-3.5" />
+          </button>
         </div>
-        <p className="text-xs text-gray-500 mt-1">
-          Ask me to show reviews in different ways
-        </p>
+        {userName && (
+          <p className="text-xs text-gray-500 mt-1">{userName}</p>
+        )}
       </div>
 
       {/* Messages */}
